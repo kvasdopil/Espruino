@@ -38,8 +38,8 @@ info = {
      'DEFINES+=-DDUMP_IGNORE_VARIABLES=\'"Minew\\0"\'',
      'DFU_PRIVATE_KEY=targets/nrf5x_dfu/dfu_private_key.pem',
      'DFU_SETTINGS=--application-version 0xff --hw-version 52 --sd-req 0x8C',
-     'INCLUDE += -I$(ROOT)/libs/nordic_thingy',
-     'WRAPPERSOURCES += libs/nordic_thingy/jswrap_thingy.c',
+     'INCLUDE += -I$(ROOT)/libs/minew_e8',
+     'WRAPPERSOURCES += libs/minew_e8/jswrap_minew_e8.c',
      'JSMODULESOURCES += libs/js/LIS3DH.min.js',
      'JSMODULESOURCES+=libs/js/minew/e8.min.js'
    ]
