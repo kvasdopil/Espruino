@@ -28,6 +28,7 @@ node ../../../EspruinoDocs/bin/minify.js nordic/Thingy.js nordic/Thingy.min.js
 node ../../../EspruinoDocs/bin/minify.js rak/RAK8211.js rak/RAK8211.min.js
 node ../../../EspruinoDocs/bin/minify.js rak/RAK8212.js rak/RAK8212.min.js
 node ../../../EspruinoDocs/bin/minify.js nordic/Thingy.js nordic/Thingy.min.js
+node ../../../EspruinoDocs/bin/minify.js minew/e8.js minew/e8.min.js
 
 node ../../../EspruinoDocs/bin/minify.js pixljs/E_showMenu.js pixljs/E_showMenu.min.js
 node ../../../EspruinoDocs/bin/minify.js pixljs/E_showMessage.js pixljs/E_showMessage.min.js
