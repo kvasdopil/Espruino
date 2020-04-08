@@ -7814,7 +7814,43 @@
 
 // </h>
 //==========================================================
+#ifndef NRFX_SPIM_ENABLED
+#define NRFX_SPIM_ENABLED 1
+#endif
+// <q> NRFX_SPIM0_ENABLED  - Enable SPIM0 instance
+ 
 
+#ifndef NRFX_SPIM0_ENABLED
+#define NRFX_SPIM0_ENABLED 1
+#endif
+
+// <q> NRFX_SPIM1_ENABLED  - Enable SPIM1 instance
+ 
+
+#ifndef NRFX_SPIM1_ENABLED
+#define NRFX_SPIM1_ENABLED 1
+#endif
+
+// <q> NRFX_SPIM2_ENABLED  - Enable SPIM2 instance
+ 
+
+#ifndef NRFX_SPIM2_ENABLED
+#define NRFX_SPIM2_ENABLED 1
+#endif
+
+// <q> NRFX_SPIM3_ENABLED  - Enable SPIM3 instance
+ 
+
+#ifndef NRFX_SPIM3_ENABLED
+#define NRFX_SPIM3_ENABLED 1
+#endif
+
+// <q> NRFX_SPIM_EXTENDED_ENABLED  - Enable extended SPIM features
+ 
+
+#ifndef NRFX_SPIM_EXTENDED_ENABLED
+#define NRFX_SPIM_EXTENDED_ENABLED 1
+#endif
 
 // </e>
 

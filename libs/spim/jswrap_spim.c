@@ -1,7 +1,10 @@
 #include "jsutils.h"
 #include "jsvar.h"
 #include "jspin.h"
+#include "jshardware.h"
 #include "jswrap_spim.h"
+
+#include <nrfx_spim.h>
 
 /*JSON{
   "type" : "library",
@@ -24,47 +27,53 @@ This library provides SPIM capability
 This initialises SPIM
 */
 
+typedef struct {
+  int miso;
+  int mosi;
+  int sck;      
+  int dc;    
+  int cs;
+} spim_config;
+
+void spim_handler(nrfx_spim_evt_t const *p_event, void *context) {
+
+}
+
 JsVar *jswrap_spim_setup(JsVar *options) {
-  //if (!jsvIsObject(options)) {
+  if (!jsvIsObject(options)) {
     jsExceptionHere(JSET_ERROR, "Expecting an options object, got %t", options);
     return 0;
-  //}
-  // JsVar *tvType = jsvObjectGetChild(options, "type",0);
-  // if (jsvIsStringEqual(tvType, "pal")) {
-  //   jsvUnLock(tvType);
-  //   tv_info_pal inf;
-  //   tv_info_pal_init(&inf);
-  //   jsvConfigObject configs[] = {
-  //       {"type", 0, 0},
-  //       {"video", JSV_PIN, &inf.pinVideo},
-  //       {"sync", JSV_PIN, &inf.pinSync},
-  //       {"width", JSV_INTEGER, &inf.width},
-  //       {"height", JSV_INTEGER, &inf.height},
-  //   };
-  //   if (jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
-  //     return tv_setup_pal(&inf);
-  //   }
-  //   return 0;
-  // } else if (jsvIsStringEqual(tvType, "vga")) {
-  //   jsvUnLock(tvType);
-  //   tv_info_vga inf;
-  //   tv_info_vga_init(&inf);
-  //   jsvConfigObject configs[] = {
-  //       {"type", 0, 0},
-  //       {"video", JSV_PIN, &inf.pinVideo},
-  //       {"hsync", JSV_PIN, &inf.pinSync},
-  //       {"vsync", JSV_PIN, &inf.pinSyncV},
-  //       {"width", JSV_INTEGER, &inf.width},
-  //       {"height", JSV_INTEGER, &inf.height},
-  //       {"repeat", JSV_INTEGER, &inf.lineRepeat},
-  //   };
-  //   if (jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
-  //     return tv_setup_vga(&inf);
-  //   }
-  //   return 0;
-  //}
+  }
 
-  //jsExceptionHere(JSET_ERROR, "Unknown TV output type %q", tvType);
-  //jsvUnLock(tvType);
-  //return 0;
+  /*spim_config config;
+  jsvConfigObject configs[] = {
+    {"miso", JSV_INTEGER, &inf.pinVideo},
+    {"mosi", JSV_INTEGER, &inf.pinSync},
+    {"sck", JSV_INTEGER, &inf.pinSyncV},
+    {"dc", JSV_INTEGER, &inf.width},
+    {"cs", JSV_INTEGER, &inf.height},
+  };
+
+  if (!jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
+    jsExceptionHere(JSET_ERROR, "Something wrong with params");
+  }*/
+
+  nrfx_spim_t const instance;
+  nrfx_spim_config_t const config = {
+    .sck_pin = 2,
+    .mosi_pin = 29,
+    .miso_pin = NRFX_SPIM_PIN_NOT_USED ,
+    .ss_pin = 47,
+    .ss_active_high = false,
+    .irq_priority = APP_IRQ_PRIORITY_LOWEST,
+    .orc = 0xFF,
+    .frequency = NRF_SPIM_FREQ_8M,
+    .mode = NRF_SPIM_MODE_0,
+    .bit_order = NRF_SPIM_BIT_ORDER_MSB_FIRST,
+    .dcx_pin = 31,
+    .rx_delay = 100,
+    .use_hw_ss = true,
+    .ss_duration = 100,
+  };
+  return nrfx_spim_init(&instance, &config, spim_handler, 0);
 }
