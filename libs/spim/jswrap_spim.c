@@ -23,6 +23,7 @@ static volatile bool spi_xfer_done;  /**< Flag used to indicate that SPI instanc
 
 void spim_event_handler(nrfx_spim_evt_t const * event, void * context)
 {
+  spi_xfer_done = true;
 }
 
 /*JSON{
@@ -45,19 +46,21 @@ JsVar *jswrap_spim_setup(JsVar *options) {
 
   nrfx_spim_config_t spi_config = NRFX_SPIM_DEFAULT_CONFIG;
   spi_config.frequency      = NRF_SPIM_FREQ_1M;
-  spi_config.use_hw_ss      = true;
-  spi_config.ss_active_high = false;
-
-  jsvConfigObject configs[] = {
-    {"miso", JSV_INTEGER, &spi_config.miso_pin},
-    {"mosi", JSV_INTEGER, &spi_config.mosi_pin},
-    {"sck", JSV_INTEGER, &spi_config.sck_pin},
-    {"dc", JSV_INTEGER, &spi_config.dcx_pin},
-    {"cs", JSV_INTEGER, &spi_config.ss_pin},
-  };
-  if (!jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
-    jsExceptionHere(JSET_ERROR, "Something wrong with params");
-  }
+  // spi_config.use_hw_ss      = true;
+  // spi_config.ss_active_high = false;
+  // spi_config.mode = NRF_SPIM_MODE_3;
+  spi_config.mosi_pin = 29;
+  spi_config.sck_pin = 2;
+  // jsvConfigObject configs[] = {
+  //   // {"miso", JSV_INTEGER, &spi_config.miso_pin},
+  //   {"mosi", JSV_INTEGER, &spi_config.mosi_pin},
+  //   {"sck", JSV_INTEGER, &spi_config.sck_pin},
+  //   // {"dc", JSV_INTEGER, &spi_config.dcx_pin},
+  //   // {"cs", JSV_INTEGER, &spi_config.ss_pin},
+  // };
+  // if (!jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
+  //   jsExceptionHere(JSET_ERROR, "Something wrong with params");
+  // }
 
   int result = nrfx_spim_init(&spi, &spi_config, spim_event_handler, 0);
 
@@ -101,13 +104,24 @@ Send bytes via SPIM interface
 JsVar *jswrap_spim_send(JsVar *buffer, JsVar *cmdBytes) {
   JSV_GET_AS_CHAR_ARRAY(data, dataLen, buffer);
   
-  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TX(data, dataLen);
-  int result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, 1);
+  spi_xfer_done = false;
 
-  if (result == NRFX_SUCCESS) {
+  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TX(data, dataLen);
+  int result = nrfx_spim_xfer(&spi, &xfer_desc, 0);
+
+  if (result != NRFX_SUCCESS) {
+    jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
     return 0;
   }
 
-  jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
+  int i = 0;
+  while (!spi_xfer_done)
+  {
+    i++;
+    __WFE();
+  }
+
+  jsExceptionHere(JSET_ERROR, "I waited for %d events", i);
+
   return 0;
 }
