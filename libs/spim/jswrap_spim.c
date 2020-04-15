@@ -45,33 +45,53 @@ JsVar *jswrap_spim_setup(JsVar *options) {
   }
 
   nrfx_spim_config_t spi_config = NRFX_SPIM_DEFAULT_CONFIG;
+  int miso = 0xff;
+  int mosi = 0xff;
+  int sck = 0xff;
+  int dcx = 0xff;
+  int ss = 0xff;
+  bool use_hw_ss = true;
+  bool ss_active_high = false;
+  JsVar *speed = 0;
 
-  spi_config.frequency      = NRF_SPIM_FREQ_1M;
-  spi_config.use_hw_ss      = true;
-  spi_config.ss_active_high = false;
+  jsvConfigObject configs[] = {
+    {"miso", JSV_INTEGER, &miso},
+    {"mosi", JSV_INTEGER, &mosi},
+    {"sck", JSV_INTEGER, &sck},
+    {"dcx", JSV_INTEGER, &dcx},
+    {"ss", JSV_INTEGER, &ss},
+    {"use_hw_ss", JSV_BOOLEAN, &use_hw_ss},
+    {"ss_active_high", JSV_BOOLEAN, &ss_active_high},
+    {"speed", JSV_OBJECT, &speed},
+    // TODO: ss_duration
+    // TODO: irq_priority
+    // TODO: orc
+  };
 
-  // uint miso = 21;
-  // uint mosi = 20;
-  // uint sck = 19;
-  // uint dcx = 0xff;
-  // uint ss = 17; 
+  if (!jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
+    jsExceptionHere(JSET_ERROR, "Something wrong with params");
+  }
 
-  // jsvConfigObject configs[] = {
-  //   {"miso", JSV_INTEGER, &miso},
-  //   {"mosi", JSV_INTEGER, &mosi},
-  //   {"sck", JSV_INTEGER, &sck},
-  //   {"dcx", JSV_INTEGER, &dcx},
-  //   {"ss", JSV_INTEGER, &ss},
-  // };
-
-  spi_config.ss_pin         = 17;
-  spi_config.miso_pin       = 21;
-  spi_config.mosi_pin       = 20;
-  spi_config.sck_pin        = 19;
-
-  // if (!jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
-  //   jsExceptionHere(JSET_ERROR, "Something wrong with params");
-  // }
+  spi_config.ss_pin    = ss;
+  spi_config.miso_pin  = miso;
+  spi_config.mosi_pin  = mosi;
+  spi_config.sck_pin   = sck;
+  spi_config.dcx_pin   = dcx;
+  spi_config.use_hw_ss = use_hw_ss;
+  spi_config.ss_active_high = ss_active_high;
+  if(jsvIsString(speed)) {
+    if (jsvIsStringEqual(speed, "1m")) {
+      spi_config.frequency = NRF_SPIM_FREQ_1M;
+    } else if (jsvIsStringEqual(speed, "8m")) {
+      spi_config.frequency = NRF_SPIM_FREQ_8M;
+    } else if (jsvIsStringEqual(speed, "16m")) {
+      spi_config.frequency = NRF_SPIM_FREQ_16M;
+    } else if (jsvIsStringEqual(speed, "32m")) {
+      spi_config.frequency = NRF_SPIM_FREQ_32M;
+    } else {
+      spi_config.frequency = NRF_SPIM_FREQ_1M;
+    }
+  }
 
   int result = nrfx_spim_init(&spi, &spi_config, spim_event_handler, NULL);
 
