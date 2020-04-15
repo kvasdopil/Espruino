@@ -21,11 +21,6 @@ static const nrfx_spim_t spi = NRFX_SPIM_INSTANCE(SPI_INSTANCE);
 
 static volatile bool spi_xfer_done;  /**< Flag used to indicate that SPI instance completed the transfer. */
 
-#define TEST_STRING { 0x9f, 0, 0, 0 }
-static uint8_t       m_tx_buf[] = TEST_STRING;           /**< TX buffer. */
-static uint8_t       m_rx_buf[sizeof(m_tx_buf) + 1];  /**< RX buffer. */
-static const uint8_t m_length = sizeof(m_tx_buf);        /**< Transfer length. */
-
 void spim_event_handler(nrfx_spim_evt_t const * event, void * context)
 {
   spi_xfer_done = true;
@@ -111,21 +106,23 @@ JsVar *jswrap_spim_setup(JsVar *options) {
   "generate" : "jswrap_spim_send",
   "params" : [
     ["options","JsVar","Send data to SPIM interface"],
-    ["cmdBytes","JsVar","Number of command bytes in the buffer"]
+    ["cmdBytes","int32","Number of command bytes in the buffer"]
   ],
   "return" : ["JsVar","nothing"]
 }
-Send bytes via SPIM interface
+Send data via SPIM interface
 */
-JsVar *jswrap_spim_send(JsVar *buffer, JsVar *cmdBytes) {
+JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
   JSV_GET_AS_CHAR_ARRAY(data, dataLen, buffer);
 
-  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TRX(data, dataLen, m_rx_buf, m_length);
+  unsigned char *buf = (unsigned char *)alloca((size_t)dataLen + 1);
+  memset(buf, 0, dataLen + 1);
 
-  memset(m_rx_buf, 0, m_length);
+  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TRX(data, dataLen, buf, dataLen + 1);
+
   spi_xfer_done = false;
 
-  int result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, 0);
+  int result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, cmdBytes);
   if (result != NRFX_SUCCESS) {
     jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
     return 0;
@@ -136,32 +133,16 @@ JsVar *jswrap_spim_send(JsVar *buffer, JsVar *cmdBytes) {
     __WFE();
   }
 
-  if (m_rx_buf[0] == 0 && m_rx_buf[1] == 194 && m_rx_buf[2] == 32 && m_rx_buf[3] == 22) {
-    jsExceptionHere(JSET_ERROR, "Correct data: %d %d %d %d", m_rx_buf[0], m_rx_buf[1], m_rx_buf[2], m_rx_buf[3]);
-    return 0;
+  JsVar *array = jsvNewTypedArray(ARRAYBUFFERVIEW_UINT8, dataLen);
+  if (array) {
+    JsvArrayBufferIterator it;
+    jsvArrayBufferIteratorNew(&it, array, 0);
+    unsigned int i;
+    for (i=0; i<(unsigned)dataLen; i++) {
+      jsvArrayBufferIteratorSetByteValue(&it, (char)buf[i]);
+      jsvArrayBufferIteratorNext(&it);
+    }
+    jsvArrayBufferIteratorFree(&it);
   }
-      
-  jsExceptionHere(JSET_ERROR, "Incorrect data: %d %d %d %d", m_rx_buf[0], m_rx_buf[1], m_rx_buf[2], m_rx_buf[3]);
-  return 0;
-  
-  // spi_xfer_done = false;
-
-  // nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TX(data, dataLen);
-  // int result = nrfx_spim_xfer(&spi, &xfer_desc, 0);
-
-  // if (result != NRFX_SUCCESS) {
-  //   jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
-  //   return 0;
-  // }
-
-  // int i = 0;
-  // while (!spi_xfer_done)
-  // {
-  //   i++;
-  //   __WFE();
-  // }
-
-  // jsExceptionHere(JSET_ERROR, "I waited for %d events", i);
-
-  // return 0;
+  return array;
 }
