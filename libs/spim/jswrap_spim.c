@@ -21,6 +21,11 @@ static const nrfx_spim_t spi = NRFX_SPIM_INSTANCE(SPI_INSTANCE);
 
 static volatile bool spi_xfer_done;  /**< Flag used to indicate that SPI instance completed the transfer. */
 
+#define TEST_STRING { 0x9f, 0, 0, 0 }
+static uint8_t       m_tx_buf[] = TEST_STRING;           /**< TX buffer. */
+static uint8_t       m_rx_buf[sizeof(m_tx_buf) + 1];  /**< RX buffer. */
+static const uint8_t m_length = sizeof(m_tx_buf);        /**< Transfer length. */
+
 void spim_event_handler(nrfx_spim_evt_t const * event, void * context)
 {
   spi_xfer_done = true;
@@ -45,29 +50,40 @@ JsVar *jswrap_spim_setup(JsVar *options) {
   }
 
   nrfx_spim_config_t spi_config = NRFX_SPIM_DEFAULT_CONFIG;
+
   spi_config.frequency      = NRF_SPIM_FREQ_1M;
-  // spi_config.use_hw_ss      = true;
-  // spi_config.ss_active_high = false;
-  // spi_config.mode = NRF_SPIM_MODE_3;
-  spi_config.mosi_pin = 29;
-  spi_config.sck_pin = 2;
+  spi_config.use_hw_ss      = true;
+  spi_config.ss_active_high = false;
+
+  // uint miso = 21;
+  // uint mosi = 20;
+  // uint sck = 19;
+  // uint dcx = 0xff;
+  // uint ss = 17; 
+
   // jsvConfigObject configs[] = {
-  //   // {"miso", JSV_INTEGER, &spi_config.miso_pin},
-  //   {"mosi", JSV_INTEGER, &spi_config.mosi_pin},
-  //   {"sck", JSV_INTEGER, &spi_config.sck_pin},
-  //   // {"dc", JSV_INTEGER, &spi_config.dcx_pin},
-  //   // {"cs", JSV_INTEGER, &spi_config.ss_pin},
+  //   {"miso", JSV_INTEGER, &miso},
+  //   {"mosi", JSV_INTEGER, &mosi},
+  //   {"sck", JSV_INTEGER, &sck},
+  //   {"dcx", JSV_INTEGER, &dcx},
+  //   {"ss", JSV_INTEGER, &ss},
   // };
+
+  spi_config.ss_pin         = 17;
+  spi_config.miso_pin       = 21;
+  spi_config.mosi_pin       = 20;
+  spi_config.sck_pin        = 19;
+
   // if (!jsvReadConfigObject(options, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
   //   jsExceptionHere(JSET_ERROR, "Something wrong with params");
   // }
 
-  int result = nrfx_spim_init(&spi, &spi_config, spim_event_handler, 0);
+  int result = nrfx_spim_init(&spi, &spi_config, spim_event_handler, NULL);
 
   // reinitialize SPIM if already initialized
   if (result == NRFX_ERROR_INVALID_STATE) {
     nrfx_spim_uninit(&spi);
-    result = nrfx_spim_init(&spi, &spi_config, spim_event_handler, 0);
+    result = nrfx_spim_init(&spi, &spi_config, spim_event_handler, NULL);
   }
 
   if (result == NRFX_SUCCESS) {
@@ -103,25 +119,49 @@ Send bytes via SPIM interface
 */
 JsVar *jswrap_spim_send(JsVar *buffer, JsVar *cmdBytes) {
   JSV_GET_AS_CHAR_ARRAY(data, dataLen, buffer);
-  
+
+  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TRX(data, dataLen, m_rx_buf, m_length);
+
+  memset(m_rx_buf, 0, m_length);
   spi_xfer_done = false;
 
-  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TX(data, dataLen);
-  int result = nrfx_spim_xfer(&spi, &xfer_desc, 0);
-
+  int result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, 0);
   if (result != NRFX_SUCCESS) {
     jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
     return 0;
   }
 
-  int i = 0;
   while (!spi_xfer_done)
   {
-    i++;
     __WFE();
   }
 
-  jsExceptionHere(JSET_ERROR, "I waited for %d events", i);
-
+  if (m_rx_buf[0] == 0 && m_rx_buf[1] == 194 && m_rx_buf[2] == 32 && m_rx_buf[3] == 22) {
+    jsExceptionHere(JSET_ERROR, "Correct data: %d %d %d %d", m_rx_buf[0], m_rx_buf[1], m_rx_buf[2], m_rx_buf[3]);
+    return 0;
+  }
+      
+  jsExceptionHere(JSET_ERROR, "Incorrect data: %d %d %d %d", m_rx_buf[0], m_rx_buf[1], m_rx_buf[2], m_rx_buf[3]);
   return 0;
+  
+  // spi_xfer_done = false;
+
+  // nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_XFER_TX(data, dataLen);
+  // int result = nrfx_spim_xfer(&spi, &xfer_desc, 0);
+
+  // if (result != NRFX_SUCCESS) {
+  //   jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
+  //   return 0;
+  // }
+
+  // int i = 0;
+  // while (!spi_xfer_done)
+  // {
+  //   i++;
+  //   __WFE();
+  // }
+
+  // jsExceptionHere(JSET_ERROR, "I waited for %d events", i);
+
+  // return 0;
 }
