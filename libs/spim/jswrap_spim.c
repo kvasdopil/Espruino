@@ -140,11 +140,18 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
 
   JSV_GET_AS_CHAR_ARRAY(tx_data, tx_size, buffer);
 
+  // If MISO pin is used, then we want to receive data from the device 
   size_t rx_size = useMiso ? tx_size : 0;
   if (rx_size) {
-    rx_data = (unsigned char *)alloca(rx_size);
-    memset(rx_data, 0, tx_size);
-  } 
+    // If buffer is Uint8Array or a string, then we can just reuse it to store the response
+    int length;
+    rx_data = jsvGetDataPointer(buffer, &length); // NOTE: and it will be the same as tx_data
+    if (!rx_data) {
+      // otherwise we allocate the buffer ourselves
+      rx_data = (unsigned char *)alloca(rx_size);
+      memset(rx_data, 0, tx_size);
+    }
+  }
 
   spi_xfer_done = false;
 
@@ -161,7 +168,14 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
     __WFE();
   }
 
+  // If we had a reply
   if (rx_size) {
+    // if the reply was written to the same buffer, just return it
+    if (rx_data == tx_data) {
+      return buffer;
+    }
+
+    // Otherwise we need to create an Uint8Array ourself and populate it with buffer data
     JsVar *array = jsvNewTypedArray(ARRAYBUFFERVIEW_UINT8, rx_size);
     if (!array) {
       jsExceptionHere(JSET_ERROR, "Cannot allocate array");
