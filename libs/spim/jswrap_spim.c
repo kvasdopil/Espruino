@@ -131,6 +131,21 @@ JsVar *jswrap_spim_setup(JsVar *options) {
   return 0;
 }
 
+// If buffer is Uint8Array or a string then we can just reuse it to store the response
+// (rx_data will be equal to tx_data in this case)
+// otherwise we create an array ourselves and use it as a response buffer
+#define REUSE_BUFFER(IN_ARRAY, IN_LENGTH, OUT_ARRAY, OUT_LENGTH, OUT_PTR) \
+  OUT_PTR = jsvGetDataPointer(IN_ARRAY, &OUT_LENGTH); \
+  if (OUT_PTR) { \
+    OUT_ARRAY = IN_ARRAY; \
+  } else { \
+    OUT_ARRAY = jsvNewTypedArray(ARRAYBUFFERVIEW_UINT8, IN_LENGTH); \
+    if (OUT_ARRAY) { \
+      OUT_PTR = jsvGetDataPointer(OUT_ARRAY, &OUT_LENGTH); \
+      assert(OUT_PTR); \
+    } \
+  } 
+
 /*JSON{
   "type" : "staticmethod",
   "class" : "spim",
@@ -145,28 +160,18 @@ JsVar *jswrap_spim_setup(JsVar *options) {
 Send data via SPIM interface
 */
 JsVar *jswrap_spim_send_sync(JsVar *buffer, int cmdBytes) {
-  unsigned char *rx_data = NULL;
   JsVar* result = 0;
+  size_t rx_size = 0;
+  unsigned char *rx_data = NULL;
 
   JSV_GET_AS_CHAR_ARRAY(tx_data, tx_size, buffer);
 
   // If MISO pin is used, then we want to receive data from the device 
-  size_t rx_size = useMiso ? tx_size : 0;
-  if (rx_size) {
-    // If buffer is Uint8Array or a string, then we can just reuse it to store the response
-    int length;
-    rx_data = jsvGetDataPointer(buffer, &length); // NOTE: rx_data will be equal to tx_data
-    if (rx_data) {
-      result = buffer; // function will return the same buffer
-    } else {
-      // otherwise we create an array ourselves and use it as a response buffer
-      result = jsvNewTypedArray(ARRAYBUFFERVIEW_UINT8, rx_size);
-      if (!result) {
-        jsExceptionHere(JSET_ERROR, "Cannot allocate array to store result");
-        return 0;
-      }
-      rx_data = jsvGetDataPointer(result, &length);
-      assert(rx_data);
+  if (useMiso) {
+    REUSE_BUFFER(buffer, tx_size, result, rx_size, rx_data);
+    if (!result) {
+      jsExceptionHere(JSET_ERROR, "Cannot allocate array to store response"); 
+      return 0;
     }
   }
 
@@ -203,8 +208,9 @@ JsVar *jswrap_spim_send_sync(JsVar *buffer, int cmdBytes) {
 Asyncronously send data via SPIM interface
 */
 JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
-  unsigned char *rx_data = NULL;
   JsVar* result = 0;
+  size_t rx_size = 0;
+  unsigned char *rx_data = NULL;
 
   if (xfer_promise) {
     jsExceptionHere(JSET_ERROR, "Cannot send data, another transfer is in progress");
@@ -214,22 +220,11 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
   JSV_GET_AS_CHAR_ARRAY(tx_data, tx_size, buffer);
 
   // If MISO pin is used, then we want to receive data from the device 
-  size_t rx_size = useMiso ? tx_size : 0;
-  if (rx_size) {
-    // If buffer is Uint8Array or a string, then we can just reuse it to store the response
-    int length;
-    rx_data = jsvGetDataPointer(buffer, &length); // NOTE: rx_data will be equal to tx_data
-    if (rx_data) {
-      result = buffer; // function will return the same buffer
-    } else {
-      // otherwise we create an array ourselves and use it as a response buffer
-      result = jsvNewTypedArray(ARRAYBUFFERVIEW_UINT8, rx_size);
-      if (!result) {
-        jsExceptionHere(JSET_ERROR, "Cannot allocate array to store result");
-        return 0;
-      }
-      rx_data = jsvGetDataPointer(result, &length);
-      assert(rx_data);
+  if (useMiso) {
+    REUSE_BUFFER(buffer, tx_size, result, rx_size, rx_data);
+    if (!result) {
+      jsExceptionHere(JSET_ERROR, "Cannot allocate array to store response"); 
+      return 0;
     }
   }
 
