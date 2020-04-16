@@ -137,6 +137,7 @@ Send data via SPIM interface
 */
 JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
   unsigned char *rx_data = NULL;
+  JsVar* result = 0;
 
   JSV_GET_AS_CHAR_ARRAY(tx_data, tx_size, buffer);
 
@@ -146,10 +147,17 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
     // If buffer is Uint8Array or a string, then we can just reuse it to store the response
     int length;
     rx_data = jsvGetDataPointer(buffer, &length); // NOTE: and it will be the same as tx_data
-    if (!rx_data) {
-      // otherwise we allocate the buffer ourselves
-      rx_data = (unsigned char *)alloca(rx_size);
-      memset(rx_data, 0, tx_size);
+    if (rx_data) {
+      result = buffer; // function will return the same buffer
+    } else {
+      // otherwise we create an array ourselves and use it as a response buffer
+      result = jsvNewTypedArray(ARRAYBUFFERVIEW_UINT8, rx_size);
+      if (!result) {
+        jsExceptionHere(JSET_ERROR, "Cannot allocate array to store result");
+        return 0;
+      }
+      rx_data = jsvGetDataPointer(result, &length);
+      assert(rx_data);
     }
   }
 
@@ -157,8 +165,8 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
 
   nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_SINGLE_XFER(tx_data, tx_size, rx_data, rx_size);
 
-  int result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, cmdBytes);
-  if (result != NRFX_SUCCESS) {
+  int xfer_result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, cmdBytes);
+  if (xfer_result != NRFX_SUCCESS) {
     jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
     return 0;
   }
@@ -168,28 +176,5 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
     __WFE();
   }
 
-  // If we had a reply
-  if (rx_size) {
-    // if the reply was written to the same buffer, just return it
-    if (rx_data == tx_data) {
-      return buffer;
-    }
-
-    // Otherwise we need to create an Uint8Array ourself and populate it with buffer data
-    JsVar *array = jsvNewTypedArray(ARRAYBUFFERVIEW_UINT8, rx_size);
-    if (!array) {
-      jsExceptionHere(JSET_ERROR, "Cannot allocate array");
-    }
-    JsvArrayBufferIterator it;
-    jsvArrayBufferIteratorNew(&it, array, 0);
-    unsigned int i;
-    for (i=0; i<(unsigned)rx_size; i++) {
-      jsvArrayBufferIteratorSetByteValue(&it, (char)rx_data[i]);
-      jsvArrayBufferIteratorNext(&it);
-    }
-    jsvArrayBufferIteratorFree(&it);
-    return array;
-  }
-  
-  return 0;
+  return result;
 }
