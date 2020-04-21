@@ -36,7 +36,11 @@ info = {
    ],
    'makefile' : [
      'NRF_SDK15=1',
-     'DEFINES="-DNRFX_SPIM_ENABLED=1 -DNRFX_SPIM0_ENABLED=1 -DNRFX_SPIM_EXTENDED_ENABLED=1"',
+     "USE_NFC=0",
+     'DEFINES+=-DCONFIG_NFCT_PINS_AS_GPIOS', # Don't use NFC - the pins are used for GPS
+     'DEFINES+=-DNRFX_SPIM_ENABLED=1',
+     'DEFINES+=-DNRFX_SPIM0_ENABLED=1',
+     'DEFINES+=-DNRFX_SPIM_EXTENDED_ENABLED=1',
      'DFU_PRIVATE_KEY=targets/nrf5x_dfu/dfu_private_key.pem',
      'DFU_SETTINGS=--application-version 0xff --hw-version 52 --sd-req 0xA9',
      'INCLUDE += -I$(ROOT)/libs/spim/',

@@ -42,7 +42,7 @@ info = {
      'DEFINES += -DNRF_USB=1 -DUSB',
      'NRF_SDK15=1',
      'INCLUDE += -I$(ROOT)/libs/spim/',
-     'WRAPPERSOURCES += libs/spim/jswrap_spim.c'
+     'WRAPPERSOURCES += libs/spim/jswrap_spim.c' 
    ]
  }
 };

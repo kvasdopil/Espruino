@@ -48,7 +48,10 @@
 #include "app_util_platform.h"
 #include "nrf_delay.h"
 #ifdef USE_NFC
+#warning AAAAadfasd
 #include "hal_t2t/hal_nfc_t2t.h"
+#else
+#warning NO_NFC
 #endif
 #if BLE_HIDS_ENABLED
 #include "ble_hids.h"
