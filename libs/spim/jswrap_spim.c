@@ -247,3 +247,214 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
 
   return jsvLockAgain(xfer_promise);
 }
+
+// fb code
+
+/*JSON{
+  "type" : "library",
+  "class" : "fb"
+}
+This library provides functions to work with in-memory framebuffer
+*/
+
+uint16_t fb[240*240];
+int fb_width = 240;
+int fb_height = 240;
+int fb_bpp = sizeof(uint16_t);
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "init",
+  "generate" : "jswrap_fb_init",
+  "params" : [
+    ["w","int","Width of framebuffer"],
+    ["h","int","Height of framebuffer"],
+    ["bpp","int","Bpp of framebuffer"]
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Initialize framebuffer object
+*/
+JsVar *jswrap_fb_init(int w, int h, int bpp) {
+  if (fb && fb_width != w && fb_width != h && fb_bpp != bpp) {
+    jsExceptionHere(JSET_ERROR, "Framebuffer already allocated, need to free()");
+    return 0;
+  }
+
+  if (bpp != 2) {
+    jsExceptionHere(JSET_ERROR, "Only 16 bpp 5-6-5 framebuffers are supported, got %d %d %d", w, h, bpp);
+    return 0;
+  }
+
+  // fb = calloc(FB_16BPP, w * h);
+  // fb_bpp = bpp;
+  // fb_width = w;
+  // fb_height = h;
+  jsExceptionHere(JSET_ERROR, "Not implemented");
+  return 0;
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "flip",
+  "generate" : "jswrap_fb_flip",
+  "params" : [
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Send framebuffer to SPIM3 interface
+*/
+JsVar *jswrap_fb_flip() {
+  if (!fb) {
+    jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
+    return 0;
+  }
+
+  spi_xfer_done = false;
+
+  last_xfer_output = 0; // store result in global var so the callback can put it in promise
+  xfer_promise = jspromise_create();
+  if (!xfer_promise) {
+    jsExceptionHere(JSET_ERROR, "Cannot create promise");
+    return 0;
+  }
+
+  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_SINGLE_XFER(fb, fb_width * fb_height * sizeof(uint16_t), NULL, 0);
+
+  int xfer_result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, 0);
+  if (xfer_result != NRFX_SUCCESS) {
+    jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", xfer_result);
+    return 0;
+  }
+
+  while (!spi_xfer_done)
+  {
+    __WFE();
+  }
+
+  return jsvLockAgain(xfer_promise);
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "clear",
+  "generate" : "jswrap_fb_clear",
+  "params" : [
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Fill framebuffer with zeroes
+*/
+JsVar *jswrap_fb_clear() {
+  if (!fb) {
+    jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
+    return 0;
+  }
+
+  uint16_t* end = fb + fb_width * fb_height;
+  uint16_t* ptr = fb;
+  while(ptr != end) {
+    *ptr = 0;
+    ptr++;
+  }
+
+  return 0;
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "blit",
+  "generate" : "jswrap_fb_blit",
+  "params" : [
+    ["buffer","JsVar","Bitmap to blit into framebuffer"],
+    ["w","int","Width of image"],
+    ["h","int","Height of image"]
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Blit an image to a framebuffer 
+*/
+JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h) {
+  if (!fb) {
+    jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
+    return 0;
+  }
+
+  int x = 0;
+  int y = 0;
+
+  JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
+  uint16_t* buf16 = buf_data;
+
+  if (buf_size < (w * h * 2)) {
+    jsExceptionHere(JSET_ERROR, "Buffer is too small, got %d need %d", buf_size, w * h * 2);
+    return 0;
+  }
+
+  for(int yy = 0; yy<h; yy++) {
+    for(int xx = 0; xx<w; xx++) {
+      fb[xx + yy * fb_width] = buf16[xx + yy * w];
+    }
+  }
+
+  return 0;
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "get",
+  "generate" : "jswrap_fb_get",
+  "params" : [
+    ["x","int","Width of image"],
+    ["y","int","Height of image"]
+  ],
+  "return" : ["int","pixel value"]
+}
+Get a pixel value of fb
+*/
+int jswrap_fb_get(int x, int y) {
+  if (!fb) {
+    jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
+    return 0;
+  }
+
+  if (x>=fb_width || y>=fb_height) {
+    return 0;
+  }
+
+  return fb[x + y * fb_width];
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "set",
+  "generate" : "jswrap_fb_set",
+  "params" : [
+    ["x","int","Width of image"],
+    ["y","int","Height of image"],
+    ["c","int","Value of the pixel"]
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Get a pixel value of fb
+*/
+JsVar* jswrap_fb_set(int x, int y, int c) {
+  if (!fb) {
+    jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
+    return 0;
+  }
+
+  if (x>=fb_width || y>=fb_height) {
+    return 0;
+  }
+
+  fb[x + y*fb_width] = c;
+
+  return 0;
+}
