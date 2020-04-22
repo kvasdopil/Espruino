@@ -301,12 +301,14 @@ JsVar *jswrap_fb_init(int w, int h, int bpp) {
   "name" : "flip",
   "generate" : "jswrap_fb_flip",
   "params" : [
+    ["y","int","Vertical offset"],
+    ["len","int","Amount of bytes to send"]
   ],
   "return" : ["JsVar","nothing"]
 }
 Send framebuffer to SPIM3 interface
 */
-JsVar *jswrap_fb_flip() {
+JsVar *jswrap_fb_flip(int y, int len) {
   if (!fb) {
     jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
     return 0;
@@ -314,14 +316,14 @@ JsVar *jswrap_fb_flip() {
 
   spi_xfer_done = false;
 
-  last_xfer_output = 0; // store result in global var so the callback can put it in promise
-  xfer_promise = jspromise_create();
-  if (!xfer_promise) {
-    jsExceptionHere(JSET_ERROR, "Cannot create promise");
-    return 0;
-  }
+  //last_xfer_output = 0; // store result in global var so the callback can put it in promise
+  // xfer_promise = jspromise_create();
+  //if (!xfer_promise) {
+  //  jsExceptionHere(JSET_ERROR, "Cannot create promise");
+  //  return 0;
+  //}
 
-  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_SINGLE_XFER(fb, fb_width * fb_height * sizeof(uint16_t), NULL, 0);
+  nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_SINGLE_XFER(fb + fb_width * y, len, NULL, 0);
 
   int xfer_result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, 0);
   if (xfer_result != NRFX_SUCCESS) {
@@ -334,7 +336,9 @@ JsVar *jswrap_fb_flip() {
     __WFE();
   }
 
-  return jsvLockAgain(xfer_promise);
+  // return jsvLockAgain(xfer_promise);
+
+  return 0;
 }
 
 /*JSON{
@@ -364,6 +368,36 @@ JsVar *jswrap_fb_clear() {
   return 0;
 }
 
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+      __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+#define min(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+      __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "prepareBlit",
+  "generate" : "jswrap_fb_prepare_blit",
+  "params" : [
+    ["x","int","X coord to blit to"],
+    ["y","int","Y coord to blit to"]
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Blit an image to a framebuffer 
+*/
+int blit_x = 0;
+int blit_y = 0;
+
+JsVar *jswrap_fb_prepare_blit(int x, int y) {
+  blit_x = x;
+  blit_y = y;
+}
+
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
@@ -372,20 +406,18 @@ JsVar *jswrap_fb_clear() {
   "params" : [
     ["buffer","JsVar","Bitmap to blit into framebuffer"],
     ["w","int","Width of image"],
-    ["h","int","Height of image"],
-    ["x","int","Position to blit to"]
+    ["h","int","Height of image"]
   ],
   "return" : ["JsVar","nothing"]
 }
 Blit an image to a framebuffer 
 */
-JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h, int x) {
+// TODO: use JsVarArray
+JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h) {
   if (!fb) {
     jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
     return 0;
   }
-
-  int y = 0;
 
   JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
   uint16_t* buf16 = buf_data;
@@ -395,23 +427,50 @@ JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h, int x) {
     return 0;
   }
 
-  if (y < 0 || x < 0) {
-    jsExceptionHere(JSET_ERROR, "Bitmap cropping not implemented");
-  }
-  if (x + w >= fb_width) {
-    jsExceptionHere(JSET_ERROR, "Bitmap cropping not implemented");
-  }
-  if (y + h >= fb_height) {
-    jsExceptionHere(JSET_ERROR, "Bitmap cropping not implemented");
-  }
+  // const ymin = max(0, blit_y);
+  // const ymax = min(blit_y + h, fb_height);
+  // const xmin = max(0, blit_x);
+  // const xmax = min(blit_x + w, fb_width);
 
   // TODO: optimize
+  // for(int sy = ymin; sy < ymax; sy++) {
+  //   int offy = sy - blit_y;
+  //   for(int sx = xmin; sy < xmax; sx++) {
+  //     int offx = sx - blit_x;
+  //     uint16_t val = buf16[offx + offy * w];
+  //     fb[sx + sy * fb_width] = val;
+  //   }
+  // }
   for(int yy = 0; yy<h; yy++) {
     for(int xx = 0; xx<w; xx++) {
-      fb[x + xx + yy * fb_width] = buf16[xx + yy * w];
+      fb[blit_x + xx + (blit_y + yy) * fb_width] = buf16[xx + yy * w];
     }
   }
 
+  return 0;
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "setColor",
+  "generate" : "jswrap_fb_set_color",
+  "params" : [
+    ["r","int","Red"],
+    ["g","int","Green"],
+    ["b","int","Blue"]
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Draw a filled rect on a buffer
+*/
+static uint16_t current_color = 0;
+JsVar* jswrap_fb_set_color(int r, int g, int b) {
+  current_color = (r >> 3 << 11) + (g >> 2 << 5) + (b >> 3);
+  uint8_t* bytes = &current_color;
+  uint8_t bb = bytes[0];
+  bytes[0] = bytes[1];
+  bytes[1] = bb;
   return 0;
 }
 
@@ -436,15 +495,15 @@ JsVar* jswrap_fb_fill(int x, int y, int w, int h) {
     return 0;
   }
 
-  if (y < 0 || x < 0 || x+w >= fb_width || y+h >= fb_height) {
-    jsExceptionHere(JSET_ERROR, "Cropping not implemented");
-    return 0;
-  }
-
   // TODO: optimize
-  for(int yy = 0; yy<h; yy++) {
-    for(int xx = 0; xx<w; xx++) {
-      fb[xx + yy * fb_width] = 0xff; // fill with red
+  const ymin = max(0, y);
+  const ymax = min(y + h, fb_height);
+  const xmin = max(0, x);
+  const xmax = min(x + w, fb_width);
+
+  for(int yy = ymin; yy<ymax; yy++) {
+    for(int xx = xmin; xx<xmax; xx++) {
+      fb[xx + yy * fb_width] = current_color;
     }
   }
   return 0;
