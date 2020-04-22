@@ -372,19 +372,19 @@ JsVar *jswrap_fb_clear() {
   "params" : [
     ["buffer","JsVar","Bitmap to blit into framebuffer"],
     ["w","int","Width of image"],
-    ["h","int","Height of image"]
+    ["h","int","Height of image"],
+    ["x","int","Position to blit to"]
   ],
   "return" : ["JsVar","nothing"]
 }
 Blit an image to a framebuffer 
 */
-JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h) {
+JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h, int x) {
   if (!fb) {
     jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
     return 0;
   }
 
-  int x = 0;
   int y = 0;
 
   JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
@@ -395,12 +395,58 @@ JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h) {
     return 0;
   }
 
+  if (y < 0 || x < 0) {
+    jsExceptionHere(JSET_ERROR, "Bitmap cropping not implemented");
+  }
+  if (x + w >= fb_width) {
+    jsExceptionHere(JSET_ERROR, "Bitmap cropping not implemented");
+  }
+  if (y + h >= fb_height) {
+    jsExceptionHere(JSET_ERROR, "Bitmap cropping not implemented");
+  }
+
+  // TODO: optimize
   for(int yy = 0; yy<h; yy++) {
     for(int xx = 0; xx<w; xx++) {
-      fb[xx + yy * fb_width] = buf16[xx + yy * w];
+      fb[x + xx + yy * fb_width] = buf16[xx + yy * w];
     }
   }
 
+  return 0;
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "fill",
+  "generate" : "jswrap_fb_fill",
+  "params" : [
+    ["x","int","Start of fill"],
+    ["y","int","Start of fill"],
+    ["w","int","Width of fill"],
+    ["h","int","Height of fill"]
+  ],
+  "return" : ["JsVar","nothing"]
+}
+Draw a filled rect on a buffer
+*/
+JsVar* jswrap_fb_fill(int x, int y, int w, int h) {
+  if (!fb) {
+    jsExceptionHere(JSET_ERROR, "Framebuffer is not initialized");
+    return 0;
+  }
+
+  if (y < 0 || x < 0 || x+w >= fb_width || y+h >= fb_height) {
+    jsExceptionHere(JSET_ERROR, "Cropping not implemented");
+    return 0;
+  }
+
+  // TODO: optimize
+  for(int yy = 0; yy<h; yy++) {
+    for(int xx = 0; xx<w; xx++) {
+      fb[xx + yy * fb_width] = 0xff; // fill with red
+    }
+  }
   return 0;
 }
 
@@ -423,7 +469,7 @@ int jswrap_fb_get(int x, int y) {
     return 0;
   }
 
-  if (x>=fb_width || y>=fb_height) {
+  if (y < 0 || x < 0 || x >= fb_width || y >= fb_height) {
     return 0;
   }
 
@@ -450,7 +496,7 @@ JsVar* jswrap_fb_set(int x, int y, int c) {
     return 0;
   }
 
-  if (x>=fb_width || y>=fb_height) {
+  if (y < 0 || x < 0 || x >= fb_width || y >= fb_height) {
     return 0;
   }
 
