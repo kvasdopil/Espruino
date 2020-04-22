@@ -390,12 +390,13 @@ JsVar *jswrap_fb_clear() {
 }
 Blit an image to a framebuffer 
 */
-int blit_x = 0;
-int blit_y = 0;
+static int blit_x = 0;
+static int blit_y = 0;
 
 JsVar *jswrap_fb_prepare_blit(int x, int y) {
   blit_x = x;
   blit_y = y;
+  return 0;
 }
 
 /*JSON{
@@ -441,9 +442,15 @@ JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h) {
   //     fb[sx + sy * fb_width] = val;
   //   }
   // }
-  for(int yy = 0; yy<h; yy++) {
-    for(int xx = 0; xx<w; xx++) {
-      fb[blit_x + xx + (blit_y + yy) * fb_width] = buf16[xx + yy * w];
+  // for(int yy = 0; yy<h; yy++) {
+  //   for(int xx = 0; xx<w; xx++) {
+  //     fb[blit_x + xx + (blit_y + yy) * fb_width] = buf16[xx + yy * w];
+  //   }
+  // }
+
+  for(int yy = 0;yy<h; yy++) {
+    for(int xx=0; xx<w; xx++) {
+      jswrap_fb_set(blit_x + xx, blit_y + yy, buf16[xx + yy * w]);
     }
   }
 
