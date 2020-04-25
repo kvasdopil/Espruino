@@ -248,11 +248,11 @@ JsVar *jswrap_spim_send(JsVar *buffer, int cmdBytes) {
   return jsvLockAgain(xfer_promise);
 }
 
-int spim_send_sync(uint8_t *buf, int len) {
+int spim_send_sync(uint8_t *buf, int len, int cmdBytes) {
   spi_xfer_done = false;
 
   nrfx_spim_xfer_desc_t xfer_desc = NRFX_SPIM_SINGLE_XFER(buf, len, NULL, 0);
-  int xfer_result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, 0);
+  int xfer_result = nrfx_spim_xfer_dcx(&spi, &xfer_desc, 0, cmdBytes);
   if (xfer_result != NRFX_SUCCESS) {
       return xfer_result;
   }

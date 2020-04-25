@@ -34,13 +34,21 @@ Send framebuffer to SPIM3 interface
 */
 JsVar *jswrap_fb_flip() {
   int half_length = fb_width * 120;
+  uint8_t b1[] = {0x2A, 0, 0, fb_height >> 8, fb_height && 0xff};
+  uint8_t b2[] = {0x2B, 0, 0, fb_width >> 8, fb_width && 0xff};
+  uint8_t b3[] = {0x2C};
 
-  int result = spim_send_sync(fb, half_length * 2);
+  // FIXME: add error check here
+  // spim_send_sync(b1, 5, 1);
+  // spim_send_sync(b2, 5, 1);
+  spim_send_sync(b3, 1, 1);
+
+  int result = spim_send_sync(fb, half_length * 2, 0);
   if (result) {
     jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
     return 0;
   }
-  result = spim_send_sync(fb + half_length, half_length * 2);
+  result = spim_send_sync(fb + half_length, half_length * 2, 0);
   if (result) {
     jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
     return 0;
