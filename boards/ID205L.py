@@ -44,7 +44,8 @@ info = {
      'DFU_PRIVATE_KEY=targets/nrf5x_dfu/dfu_private_key.pem',
      'DFU_SETTINGS=--application-version 0xff --hw-version 52 --sd-req 0xA9',
      'INCLUDE += -I$(ROOT)/libs/spim/',
-     'WRAPPERSOURCES += libs/spim/jswrap_spim.c'
+     'WRAPPERSOURCES += libs/spim/jswrap_spim.c',
+     'WRAPPERSOURCES += libs/spim/jswrap_fb.c'
    ]
  }
 };
