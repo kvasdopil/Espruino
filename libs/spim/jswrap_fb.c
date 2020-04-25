@@ -34,67 +34,6 @@ uint16_t fb[FB_WIDTH * FB_HEIGHT];
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
-  "name" : "prepareBlit",
-  "generate" : "jswrap_fb_prepare_blit",
-  "params" : [
-    ["x","int","X coord to blit to"],
-    ["y","int","Y coord to blit to"]
-  ],
-  "return" : ["JsVar","nothing"]
-}
-Blit an image to a framebuffer 
-*/
-static int blit_x = 0;
-static int blit_y = 0;
-
-JsVar *jswrap_fb_prepare_blit(int x, int y) {
-  blit_x = x;
-  blit_y = y;
-  return 0;
-}
-
-/*JSON{
-  "type" : "staticmethod",
-  "class" : "fb",
-  "name" : "blit",
-  "generate" : "jswrap_fb_blit",
-  "params" : [
-    ["buffer","JsVar","Bitmap to blit into framebuffer"],
-    ["w","int","Width of image"],
-    ["h","int","Height of image"]
-  ],
-  "return" : ["JsVar","nothing"]
-}
-Blit an image to a framebuffer 
-*/
-// TODO: use JsVarArray
-JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h) {
-  JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
-  uint16_t* buf16 = buf_data;
-
-  if (buf_size < (w * h * FB_BPP)) {
-    jsExceptionHere(JSET_ERROR, "Buffer is too small, got %d need %d", buf_size, w * h * FB_BPP);
-    return 0;
-  }
-
-  for(int y = 0; y < h; y++) {
-    for(int x = 0; x < w; x++) {
-      int tx = blit_x + x;
-      int ty = blit_y + y;
-      if (tx < 0 || ty < 0 || tx >= FB_WIDTH || ty >= FB_HEIGHT) {
-        continue;
-      }
-
-      fb[tx + ty*FB_WIDTH] = buf16[x + y * w];
-    }
-  }
-
-  return 0;
-}
-
-/*JSON{
-  "type" : "staticmethod",
-  "class" : "fb",
   "name" : "color",
   "generate" : "jswrap_fb_color",
   "params" : [
@@ -106,8 +45,7 @@ JsVar *jswrap_fb_blit(JsVar* buffer, int w, int h) {
 }
 Convert color from [r,g,b] to int value
 */
-static uint16_t current_color = 0;
-JsVar* jswrap_fb_color(int r, int g, int b) {
+int jswrap_fb_color(int r, int g, int b) {
   uint16_t color = (r >> 3 << 11) + (g >> 2 << 5) + (b >> 3);
   uint8_t* bytes = &color;
   uint8_t bb = bytes[0];
@@ -117,13 +55,17 @@ JsVar* jswrap_fb_color(int r, int g, int b) {
 }
 
 typedef struct {
+  int id;
+  void* next;
+
   int x;
   int y;
   int w;
   int h;
   int c;
-  void* next;
-  int id;
+
+  JsVar* buf;
+  int index;
 } fb_rect;
 
 fb_rect* root = NULL;
@@ -149,8 +91,8 @@ int jswrap_fb_init() {
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
-  "name" : "createRect",
-  "generate" : "jswrap_fb_create_rect",
+  "name" : "add",
+  "generate" : "jswrap_fb_add",
   "params" : [
     ["opt","JsVar","rect params"]
   ],
@@ -158,7 +100,7 @@ int jswrap_fb_init() {
 }
 Create a rect resource
 */
-int jswrap_fb_create_rect(JsVar* opt) {
+int jswrap_fb_add(JsVar* opt) {
   fb_rect* rect = calloc(sizeof(fb_rect), 1);
 
   rect->id = next_id++;
@@ -167,15 +109,19 @@ int jswrap_fb_create_rect(JsVar* opt) {
   rect->w = 0;
   rect->h = 0;
   rect->c = 0;
+  rect->buf = 0;
+  rect->index = 0;
   rect->next = root;
   root = rect;
 
   jsvConfigObject configs[] = {
-      {"x", JSV_INTEGER, &(rect->x)},
-      {"y", JSV_INTEGER, &(rect->y)},
-      {"w", JSV_INTEGER, &(rect->w)},
-      {"h", JSV_INTEGER, &(rect->h)},
-      {"c", JSV_INTEGER, &(rect->c)},
+    {"x", JSV_INTEGER, &(rect->x)},
+    {"y", JSV_INTEGER, &(rect->y)},
+    {"w", JSV_INTEGER, &(rect->w)},
+    {"h", JSV_INTEGER, &(rect->h)},
+    {"c", JSV_INTEGER, &(rect->c)},
+    {"buf", JSV_ARRAY, &(rect->buf)},
+    {"index", JSV_INTEGER, &(rect->index)},
   };
   
   if (!jsvReadConfigObject(opt, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
@@ -189,8 +135,8 @@ int jswrap_fb_create_rect(JsVar* opt) {
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
-  "name" : "updateRect",
-  "generate" : "jswrap_fb_update_rect",
+  "name" : "set",
+  "generate" : "jswrap_fb_set",
   "params" : [
     ["id","int","rect id"],
     ["opt","JsVar","rect params"]
@@ -199,7 +145,7 @@ int jswrap_fb_create_rect(JsVar* opt) {
 }
 Update a rect resource
 */
-int jswrap_fb_update_rect(int id, JsVar* opt) {
+int jswrap_fb_set(int id, JsVar* opt) {
   fb_rect* rect = root;
 
   // find rect
@@ -213,11 +159,13 @@ int jswrap_fb_update_rect(int id, JsVar* opt) {
   }
 
   jsvConfigObject configs[] = {
-      {"x", JSV_INTEGER, &(rect->x)},
-      {"y", JSV_INTEGER, &(rect->y)},
-      {"w", JSV_INTEGER, &(rect->w)},
-      {"h", JSV_INTEGER, &(rect->h)},
-      {"c", JSV_INTEGER, &(rect->c)},
+    {"x", JSV_INTEGER, &(rect->x)},
+    {"y", JSV_INTEGER, &(rect->y)},
+    {"w", JSV_INTEGER, &(rect->w)},
+    {"h", JSV_INTEGER, &(rect->h)},
+    {"c", JSV_INTEGER, &(rect->c)},
+    {"buf", JSV_ARRAY, &(rect->buf)},
+    {"index", JSV_INTEGER, &(rect->index)},
   };
   
   if (!jsvReadConfigObject(opt, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
@@ -226,6 +174,36 @@ int jswrap_fb_update_rect(int id, JsVar* opt) {
   }
 
   return 0;
+}
+
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "remove",
+  "generate" : "jswrap_fb_remove",
+  "params" : [
+    ["id","int","rect id"]
+  ],
+  "return" : ["int","nothing"]
+}
+Remove a rect resource
+*/
+int jswrap_fb_remove(int id) {
+  // TODO: free()
+  fb_rect** rect = &root;
+  while (true) {
+    if ((*rect) == NULL) {
+      return 0;
+    }
+
+    if ((*rect)->id == id) {
+      *rect = (*rect)->next;
+      return 0; 
+    }
+
+    rect = &((*rect)->next);
+  }
 }
 
 void fb_clear(int color) {
@@ -237,29 +215,58 @@ void fb_clear(int color) {
   }
 }
 
-void fb_fill(int x, int y, int w, int h) {
-  // TODO: optimize
-  const ymin = max(0, y);
-  const ymax = min(y + h, FB_HEIGHT);
-  const xmin = max(0, x);
-  const xmax = min(x + w, FB_WIDTH);
+void fb_fill(int x, int y, int w, int h, int color) {
+  const int ymin = max(0, y);
+  const int ymax = min(y + h, FB_HEIGHT);
+  const int xmin = max(0, x);
+  const int xmax = min(x + w, FB_WIDTH);
+  if (ymax <= ymin || xmax <= xmin) {
+    return;
+  }
 
-  for(int yy = ymin; yy<ymax; yy++) {
-    for(int xx = xmin; xx<xmax; xx++) {
-      fb[xx + yy * FB_WIDTH] = current_color;
+  // TODO: optimize
+  for (int yy = ymin; yy<ymax; yy++) {
+    for (int xx = xmin; xx<xmax; xx++) {
+      fb[xx + yy * FB_WIDTH] = color;
     }
   }
 }
 
+void fb_blit(int blit_x, int blit_y, int w, int h, JsVar* buffer, int index) {
+  JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
+  uint16_t* buf16 = buf_data;
+
+  const int expected_length = w * h * FB_BPP * (index + 1);
+  if (buf_size < expected_length) {
+    jsExceptionHere(JSET_ERROR, "Buffer is too small, got %d need %d", buf_size, expected_length);
+    return;
+  }
+
+  const int skip = w * h * index;
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      int tx = blit_x + x;
+      int ty = blit_y + y;
+      if (tx < 0 || ty < 0 || tx >= FB_WIDTH || ty >= FB_HEIGHT) {
+        continue;
+      }
+
+      fb[tx + ty*FB_WIDTH] = buf16[skip + x + y * w];
+    }
+  }
+
+  return 0;
+}
+
 void fb_flip() {
   int half_length = FB_WIDTH * 120;
-  uint8_t b1[] = {0x2A, 0, 0, FB_HEIGHT >> 8, FB_HEIGHT && 0xff};
-  uint8_t b2[] = {0x2B, 0, 0, FB_WIDTH >> 8, FB_WIDTH && 0xff};
+  uint8_t b1[] = {0x2A, 0, 0, FB_HEIGHT && 0xff, FB_HEIGHT >> 8};
+  uint8_t b2[] = {0x2B, 0, 0, FB_WIDTH && 0xff, FB_WIDTH >> 8};
   uint8_t b3[] = {0x2C};
 
   // FIXME: add error check here
-  // spim_send_sync(b1, 5, 1);
-  // spim_send_sync(b2, 5, 1);
+  spim_send_sync(b1, 5, 1);
+  spim_send_sync(b2, 5, 1);
   spim_send_sync(b3, 1, 1);
 
   int result = spim_send_sync(fb, half_length * FB_BPP, 0);
@@ -289,9 +296,12 @@ int jswrap_fb_render(int id) {
 
   // render all rects
   fb_rect* rect = root;
-  while(rect) {
-    current_color = rect->c;
-    fb_fill(rect->x, rect->y, rect->w, rect->h);
+  while (rect) {
+    if (rect->buf) {
+      fb_blit(rect->x, rect->y, rect->w, rect->h, rect->buf, rect->index);
+    } else {
+      fb_fill(rect->x, rect->y, rect->w, rect->h, rect->c);
+    }
 
     rect = rect->next;
   }
@@ -300,4 +310,3 @@ int jswrap_fb_render(int id) {
   fb_flip();
   return 0;
 }
-
