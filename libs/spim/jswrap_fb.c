@@ -31,6 +31,13 @@ uint16_t fb[FB_WIDTH * FB_HEIGHT];
       __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
 
+// packed as gggbbbbbrrrrrggg
+#define PACK_RGB6_TO_565(r,g,b) ((b >> 1 << 8) + (r >> 1 << 3) + (g >> 3) + (g & 0b111 << 13))
+#define UNPACK_565_TO_RGB6(val,r,g,b) \
+  int r = (val >> 2) & 0b111110; \
+  int b = (val >> 7) & 0b111110; \
+  int g = ((val << 3) + (val >> 13)) & 0b111111;
+
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
@@ -46,12 +53,7 @@ uint16_t fb[FB_WIDTH * FB_HEIGHT];
 Convert color from [r,g,b] to int value
 */
 int jswrap_fb_color(int r, int g, int b) {
-  uint16_t color = (r >> 3 << 11) + (g >> 2 << 5) + (b >> 3);
-  uint8_t* bytes = &color;
-  uint8_t bb = bytes[0];
-  bytes[0] = bytes[1];
-  bytes[1] = bb;
-  return color;
+  return PACK_RGB6_TO_565(r >> 2, g >> 2, b >> 2);
 }
 
 typedef struct {
@@ -242,10 +244,7 @@ void fb_fill(int x, int y, int w, int h, int color) {
   }
 }
 
-// Packed as gggrrrrrbbbbbggg
-#define RGB6_TO_565(r,g,b) ((r >> 1 << 8) + (b >> 1 << 3) + (g >> 3) + (g & 0b111 << 13))
-
-void fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int index) {
+void fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int index, int tint) {
   JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
   uint8_t* buf_start = buf_data+4;
   buf_size -= 4; // remove the header
@@ -257,6 +256,8 @@ void fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int in
     jsExceptionHere(JSET_ERROR, "Invalid img format f:%d w:%d h:%d", buf_data[2], buf_data[1], buf_data[0]);
     return;
   }
+
+  UNPACK_565_TO_RGB6(tint, tint_r, tint_g, tint_b);
 
   const int skip = w * h * index;
   for (int y = 0; y < h; y++) {
@@ -272,7 +273,7 @@ void fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int in
         return 0; // past end of src buffer, no more data
       }
       const br = buf_start[pt]; // 6bit
-      fb[tx + ty*FB_WIDTH] = RGB6_TO_565(br, br, br); 
+      fb[tx + ty*FB_WIDTH] = PACK_RGB6_TO_565((br * tint_r) >> 6, (br  * tint_g) >> 6, (br * tint_b) >> 6); 
     }
   }
 
@@ -319,7 +320,7 @@ int jswrap_fb_render(int id) {
   fb_rect* rect = root;
   while (rect) {
     if (rect->buf) {
-      fb_blit(rect->x, rect->y, rect->w, rect->h, rect->buf, rect->index);
+      fb_blit(rect->x, rect->y, rect->w, rect->h, rect->buf, rect->index, rect->c);
     } else {
       fb_fill(rect->x, rect->y, rect->w, rect->h, rect->c);
     }
