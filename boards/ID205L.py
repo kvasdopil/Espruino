@@ -31,8 +31,6 @@ info = {
    'libraries' : [
      'BLUETOOTH',
      'NET',
-     'GRAPHICS',
-     'NEOPIXEL'
    ],
    'makefile' : [
      'NRF_SDK15=1',

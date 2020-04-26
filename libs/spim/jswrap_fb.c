@@ -242,9 +242,21 @@ void fb_fill(int x, int y, int w, int h, int color) {
   }
 }
 
-void fb_blit(int blit_x, int blit_y, int w, int h, JsVar* buffer, int index) {
+// Packed as gggrrrrrbbbbbggg
+#define RGB6_TO_565(r,g,b) ((r >> 1 << 8) + (b >> 1 << 3) + (g >> 3) + (g & 0b111 << 13))
+
+void fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int index) {
   JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
-  uint16_t* buf16 = buf_data;
+  uint8_t* buf_start = buf_data+4;
+  buf_size -= 4; // remove the header
+
+  int w = buf_data[0];
+  int h = buf_data[1];
+  if(buf_data[2] != 8) {
+    // only supports for 1 byte, 6 bpp images
+    jsExceptionHere(JSET_ERROR, "Invalid img format f:%d w:%d h:%d", buf_data[2], buf_data[1], buf_data[0]);
+    return;
+  }
 
   const int skip = w * h * index;
   for (int y = 0; y < h; y++) {
@@ -256,10 +268,11 @@ void fb_blit(int blit_x, int blit_y, int w, int h, JsVar* buffer, int index) {
       }
 
       int pt = skip + x + y * w;
-      if (pt * FB_BPP >= buf_size) {
+      if (pt >= buf_size) {
         return 0; // past end of src buffer, no more data
       }
-      fb[tx + ty*FB_WIDTH] = buf16[pt];
+      const br = buf_start[pt]; // 6bit
+      fb[tx + ty*FB_WIDTH] = RGB6_TO_565(br, br, br); 
     }
   }
 
