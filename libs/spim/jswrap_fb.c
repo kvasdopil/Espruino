@@ -38,6 +38,9 @@ uint16_t fb[FB_WIDTH * FB_HEIGHT];
   int b = (val >> 7) & 0b111110; \
   int g = ((val << 3) + (val >> 13)) & 0b111111;
 
+// flag that fb object was modified since last render
+bool fb_was_modified = true;
+
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
@@ -103,6 +106,7 @@ int jswrap_fb_init() {
 Create a rect resource
 */
 int jswrap_fb_add(JsVar* opt) {
+  fb_was_modified = true;
   fb_rect* rect = calloc(sizeof(fb_rect), 1);
 
   rect->id = next_id++;
@@ -170,6 +174,7 @@ int jswrap_fb_set(int id, JsVar* opt) {
     return 0;
   }
 
+  fb_was_modified = true;
   jsvConfigObject configs[] = {
     {"x", JSV_INTEGER, &(rect->x)},
     {"y", JSV_INTEGER, &(rect->y)},
@@ -312,7 +317,11 @@ void fb_flip() {
 }
 Update a rect resource
 */
-int jswrap_fb_render(int id) {
+int jswrap_fb_render() {
+  if (!fb_was_modified) {
+    return 0;
+  }
+
   // clear framebuffer
   fb_clear(0);
 
@@ -330,5 +339,7 @@ int jswrap_fb_render(int id) {
 
   // send data to display
   fb_flip();
+
+  fb_was_modified = false;
   return 0;
 }
