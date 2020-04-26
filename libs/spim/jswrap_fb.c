@@ -111,8 +111,18 @@ int jswrap_fb_add(JsVar* opt) {
   rect->c = 0;
   rect->buf = 0;
   rect->index = 0;
-  rect->next = root;
-  root = rect;
+  rect->next = NULL;
+
+  // add to end of linked list
+  if (!root) {
+    root = rect;
+  } else {
+    fb_rect* last = root;
+    while(last->next) {
+      last = last->next;
+    }
+    last->next = rect;
+  }
 
   jsvConfigObject configs[] = {
     {"x", JSV_INTEGER, &(rect->x)},
@@ -236,12 +246,6 @@ void fb_blit(int blit_x, int blit_y, int w, int h, JsVar* buffer, int index) {
   JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
   uint16_t* buf16 = buf_data;
 
-  const int expected_length = w * h * FB_BPP * (index + 1);
-  if (buf_size < expected_length) {
-    jsExceptionHere(JSET_ERROR, "Buffer is too small, got %d need %d", buf_size, expected_length);
-    return;
-  }
-
   const int skip = w * h * index;
   for (int y = 0; y < h; y++) {
     for (int x = 0; x < w; x++) {
@@ -251,7 +255,11 @@ void fb_blit(int blit_x, int blit_y, int w, int h, JsVar* buffer, int index) {
         continue;
       }
 
-      fb[tx + ty*FB_WIDTH] = buf16[skip + x + y * w];
+      int pt = skip + x + y * w;
+      if (pt * FB_BPP >= buf_size) {
+        return 0; // past end of src buffer, no more data
+      }
+      fb[tx + ty*FB_WIDTH] = buf16[pt];
     }
   }
 
