@@ -70,7 +70,7 @@ typedef struct {
   int c;
 
   JsVar* buf;
-  int index;
+  JsVar* index;
 } fb_rect;
 
 fb_rect* root = NULL;
@@ -137,7 +137,7 @@ int jswrap_fb_add(JsVar* opt) {
     {"h", JSV_INTEGER, &(rect->h)},
     {"c", JSV_INTEGER, &(rect->c)},
     {"buf", JSV_ARRAY, &(rect->buf)},
-    {"index", JSV_INTEGER, &(rect->index)},
+    {"index", JSV_ARRAY, &(rect->index)},
   };
   
   if (!jsvReadConfigObject(opt, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
@@ -182,7 +182,7 @@ int jswrap_fb_set(int id, JsVar* opt) {
     {"h", JSV_INTEGER, &(rect->h)},
     {"c", JSV_INTEGER, &(rect->c)},
     {"buf", JSV_ARRAY, &(rect->buf)},
-    {"index", JSV_INTEGER, &(rect->index)},
+    {"index", JSV_ARRAY, &(rect->index)},
   };
   
   if (!jsvReadConfigObject(opt, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
@@ -249,43 +249,78 @@ void fb_fill(int x, int y, int w, int h, int color) {
   }
 }
 
-void fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int index, int tint) {
+int fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int index, int tint) {
   JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, buffer);
-  uint8_t* buf_start = buf_data+4;
-  buf_size -= 4; // remove the header
 
-  int w = buf_data[0];
-  int h = buf_data[1];
-  if(buf_data[2] != 8) {
-    // only supports for 1 byte, 6 bpp images
-    jsExceptionHere(JSET_ERROR, "Invalid img format f:%d w:%d h:%d", buf_data[2], buf_data[1], buf_data[0]);
-    return;
+  // skip all previous glyphs
+  uint length = 0;
+  while(true) { 
+    if (buf_size <= 2) {
+      jsExceptionHere(JSET_ERROR, "Buffer too small: %d < 2, glyph %d", buf_size);
+      return 0; // something weird happened, buffer is too small
+    }
+    length = (buf_data[0] << 8) + buf_data[1];
+    buf_data += 2;
+    buf_size -= 2;
+    if (buf_size < length) {
+      jsExceptionHere(JSET_ERROR, "Buffer too small: %d < %d", buf_size, length);
+      return 0; // something weird happened, buffer is too small
+    }
+    if (index == 0) {
+      break;
+    }
+
+    buf_data += length;
+    buf_size -= length;
+    index--;
   }
 
+  uint8_t glyph_type = buf_data[0];
+  if (glyph_type != 1) { // 1 is grayscale, RLE-zipped
+    jsExceptionHere(JSET_ERROR, "Unknown type of bitmap: %d", glyph_type);
+    return 0;
+  }
+  uint8_t w = buf_data[1]; // glyph width
+
+  int x = 0;
+  int y = 0;
+
   UNPACK_565_TO_RGB6(tint, tint_r, tint_g, tint_b);
-
-  const int skip = w * h * index;
-  for (int y = 0; y < h; y++) {
-    for (int x = 0; x < w; x++) {
-      int tx = blit_x + x;
-      int ty = blit_y + y;
-      if (tx < 0 || ty < 0 || tx >= FB_WIDTH || ty >= FB_HEIGHT) {
-        continue;
+  int br = 0;
+  int rle = 0;
+  
+  uint8_t* glyph_end = buf_data + length;
+  buf_data += 2; // skip header, now we are pointing at RLE-compressed data
+  while(buf_data < glyph_end) {
+    if (rle <= 0) {
+      br = buf_data[0];
+      buf_data++;
+      if (br & 0b10000000) { // rle flag
+        br &= 0b111111; // set color value
+        rle = buf_data[0] - 1; // length of zipped fragment
+        buf_data++;
       }
+    } else {
+      rle--;
+    }
 
-      int pt = skip + x + y * w;
-      if (pt >= buf_size) {
-        return 0; // past end of src buffer, no more data
-      }
-      const br = buf_start[pt]; // 6bit
+    int tx = blit_x + x;
+    int ty = blit_y + y;
+    if (tx >= 0 && ty >= 0 && tx < FB_WIDTH && ty < FB_HEIGHT) {
       fb[tx + ty*FB_WIDTH] = PACK_RGB6_TO_565((br * tint_r) >> 6, (br  * tint_g) >> 6, (br * tint_b) >> 6); 
+    }
+  
+    x++;
+    if (x == w) {
+      x = 0;
+      y++;
     }
   }
 
-  return 0;
+  return w;
 }
 
-void fb_flip() {
+bool fb_flip() {
   int half_length = FB_WIDTH * 120;
   uint8_t b1[] = {0x2A, 0, 0, FB_HEIGHT && 0xff, FB_HEIGHT >> 8};
   uint8_t b2[] = {0x2B, 0, 0, FB_WIDTH && 0xff, FB_WIDTH >> 8};
@@ -299,13 +334,15 @@ void fb_flip() {
   int result = spim_send_sync(fb, half_length * FB_BPP, 0);
   if (result) {
     jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
-    return;
+    return false;
   }
   result = spim_send_sync(fb + half_length, half_length * FB_BPP, 0);
   if (result) {
     jsExceptionHere(JSET_ERROR, "Cannot send data: error %d", result);
-    return;
+    return false;
   }
+
+  return true;
 }
 
 /*JSON{
@@ -329,7 +366,12 @@ int jswrap_fb_render() {
   fb_rect* rect = root;
   while (rect) {
     if (rect->buf) {
-      fb_blit(rect->x, rect->y, rect->w, rect->h, rect->buf, rect->index, rect->c);
+      JSV_GET_AS_CHAR_ARRAY(buf_data, buf_size, rect->index);
+      int x = rect->x;
+      for(uint i = 0; i<buf_size; i++) {
+        x += fb_blit(x, rect->y, rect->w, rect->h, rect->buf, buf_data[i], rect->c);
+        x += 2; // kerning
+      }
     } else {
       fb_fill(rect->x, rect->y, rect->w, rect->h, rect->c);
     }
