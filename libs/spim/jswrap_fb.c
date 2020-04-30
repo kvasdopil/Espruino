@@ -31,12 +31,15 @@ uint16_t fb[FB_WIDTH * FB_HEIGHT];
       __typeof__ (b) _b = (b); \
      _a < _b ? _a : _b; })
 
-// packed as gggbbbbbrrrrrggg
-#define PACK_RGB6_TO_565(r,g,b) ((b >> 1 << 8) + (r >> 1 << 3) + (g >> 3) + (g & 0b111 << 13))
-#define UNPACK_565_TO_RGB6(val,r,g,b) \
-  int r = (val >> 2) & 0b111110; \
-  int b = (val >> 7) & 0b111110; \
-  int g = ((val << 3) + (val >> 13)) & 0b111111;
+// packed as gggBBBbbRRRrrGGG
+#define PACK_RGB8_TO_565(r,g,b) ( \
+  ((b & 0b11111000) << 5) + \
+   (r & 0b11111000) + \
+  ((g & 0b11100000) >> 5) + ((g & 0b11100) << 11))
+#define UNPACK_565_TO_RGB8(val,r,g,b) \
+  int r = (val & 0b11111000); \
+  int b = (val >> 5) & 0b11111000; \
+  int g = (((val & 0b111) << 5) + ((val & 0b1110000000000000) >> 11))
 
 // flag that fb object was modified since last render
 bool fb_was_modified = true;
@@ -56,7 +59,7 @@ bool fb_was_modified = true;
 Convert color from [r,g,b] to int value
 */
 int jswrap_fb_color(int r, int g, int b) {
-  return PACK_RGB6_TO_565(r >> 2, g >> 2, b >> 2);
+  return PACK_RGB8_TO_565(r, g, b);
 }
 
 typedef struct {
@@ -285,9 +288,13 @@ int fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int ind
   int x = 0;
   int y = 0;
 
-  UNPACK_565_TO_RGB6(tint, tint_r, tint_g, tint_b);
+  UNPACK_565_TO_RGB8(tint, tint_r, tint_g, tint_b);
   int br = 0;
   int rle = 0;
+
+  tint_r >>= 2;
+  tint_g >>= 2;
+  tint_b >>= 2;
   
   uint8_t* glyph_end = buf_data + length;
   buf_data += 2; // skip header, now we are pointing at RLE-compressed data
@@ -296,18 +303,29 @@ int fb_blit(int blit_x, int blit_y, int wcrop, int hcrop, JsVar* buffer, int ind
       br = buf_data[0];
       buf_data++;
       if (br & 0b10000000) { // rle flag
-        br &= 0b111111; // set color value
         rle = buf_data[0] - 1; // length of zipped fragment
         buf_data++;
-      }
+      } 
+      br &= 0b111111;
     } else {
       rle--;
     }
 
     int tx = blit_x + x;
     int ty = blit_y + y;
+    uint8_t br_inverse = 0b111111 - br;
+
     if (tx >= 0 && ty >= 0 && tx < FB_WIDTH && ty < FB_HEIGHT) {
-      fb[tx + ty*FB_WIDTH] = PACK_RGB6_TO_565((br * tint_r) >> 6, (br  * tint_g) >> 6, (br * tint_b) >> 6); 
+      uint16_t old = fb[tx + ty*FB_WIDTH];
+
+      UNPACK_565_TO_RGB8(old, o_r, o_g, o_b);
+      o_r >>= 2;
+      o_g >>= 2;
+      o_b >>= 2;
+      o_r = (o_r * br_inverse + br * tint_r) >> 6;
+      o_g = (o_g * br_inverse + br * tint_g) >> 6;
+      o_b = (o_b * br_inverse + br * tint_b) >> 6;
+      fb[tx + ty*FB_WIDTH] = PACK_RGB8_TO_565((o_r << 2), (o_g << 2), (o_b << 2)); 
     }
   
     x++;
