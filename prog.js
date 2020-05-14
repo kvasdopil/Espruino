@@ -1,4 +1,7 @@
 const fb = require('fb');
+const st = require('Storage');
+
+const icon = st.readArrayBuffer('icon-timer.i');
 
 fb.init();
 fb.add({ x: 0, y: 0, w: 240, h: 240, c: 0xffff })
@@ -6,6 +9,7 @@ fb.add({ x: 50, y: 50, w: 140, h: 140, c: fb.color(128, 128, 0) });
 fb.add({ x: 25, y: 150, w: 50, h: 50, c: fb.color(255, 0, 0) });
 fb.add({ x: 150, y: 25, w: 50, h: 50, c: fb.color(0, 0, 255) });
 fb.add({ x: 150, y: 150, w: 50, h: 50, c: fb.color(0, 255, 0) });
+fb.add({ x: 25, y: 25, w: 80, h: 80, data: icon, c: fb.color(0, 255, 255) });
 
 const BL = D31;
 const MOSI = D3;
