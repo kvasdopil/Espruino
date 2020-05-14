@@ -216,6 +216,8 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
     numKerns--;
   }
 
+  UNPACK_565_TO_RGB8(rect->c, cr, cg, cb);
+
   int color = 0;
   int rle = 0;
   for(int y = 0; y < rect->h; y++) {
@@ -231,14 +233,12 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
       }
 
       if (y + rect->y == lineY) {
+        int cl = color << 2;
+        int ncl = (0b111111 - color) << 2;
         UNPACK_565_TO_RGB8(line[x], or, og, ob);
-        int rr = or + (color << 2);
-        int gg = og + (color << 2);
-        int bb = ob + (color << 2);
-        rr = rr > 0xff ? 0xff : rr;
-        gg = gg > 0xff ? 0xff : gg;
-        bb = bb > 0xff ? 0xff : bb;
-        // gggR RRRR BBBB BGGG
+        int rr = ((ncl * or) + (cr * cl)) >> 8;
+        int gg = ((ncl * og) + (cg * cl)) >> 8;
+        int bb = ((ncl * ob) + (cb * cl)) >> 8;
         line[x] = PACK_RGB8_TO_565(rr, gg, bb);
       }
     }
