@@ -208,73 +208,46 @@ inline void render_rect(fb_rect* rect, uint16_t* line, int y) {
   }
 }
 
-void render_image(fb_rect* rect, uint16_t* line, int lineY) {
-  if (rect->y > lineY) return;
-  if ((rect->y + rect->h) < lineY) return;
 
-  // int x1 = rect->x < 0 ? 0 : rect->x;
-  // int x2 = rect->x + rect->w >= 240 ? 240 : rect->x + rect->w;
-  
-  // int c = 0xff;
-  // line += x1;
-  // for(; x1<x2; x1++) {
-  //   line[0] = c;
-  //   line++;
-  // }
-
-  JSV_GET_AS_CHAR_ARRAY(buf, len, rect->data);
-  int pt = 0;
-  pt++; // len1
-  pt++; // len2
-  int type = buf[pt++]; // type 
+// buf[0] - len1
+// buf[1] - len2
+// buf[2] - type
+// buf[3] - id
+// buf[4] - width
+// buf[5] - height
+// buf[6] - x offset
+// buf[7] - y offset
+// buf[8] - x advance
+// buf[9] - kernings count
+int render_buffer(int X, int Y, int W, int H, int C, uint8_t* buf, uint16_t* line, int lineY) {
+  int type = buf[2]; // type 
   if(type != 11) {
     jsExceptionHere(JSET_ERROR, "unknown type %d", type);
     return;
   }; 
-  pt++; // id 
-  pt++; // width 
-  pt++; // height
-  pt++; // x offset
-  pt++; // y offset
-  pt++; // x advance
-  int numKerns = buf[pt++]; // number of kernings
-  while(numKerns) {
-    pt+=2;
-    numKerns--;
-  }
+  int numKerns = buf[9]; // number of kernings
+  buf += 9 + numKerns * 2;
 
-  UNPACK_565_TO_RGB8(rect->c, cr, cg, cb);
-
-
+  UNPACK_565_TO_RGB8(C, cr, cg, cb);
 
   int color = 0;
   int rle = 0;
+  for(int y = 0; y < H; y++) {
+    const isOnLineY = (y + Y == lineY);
 
-  // rect align
-  int xstart = rect->x;
-  if (rect->a == 1) {
-    xstart -= (rect->w >> 1);
-  }
-  if (rect->a == 2) {
-    xstart -= rect->w;
-  }
-
-  for(int y = 0; y < rect->h; y++) {
-    const isOnLineY = (y + rect->y == lineY);
-
-    for(int x = 0; x < rect->w; x++) {
+    for(int x = 0; x < W; x++) {
       if (rle == 0) {
-        color = buf[pt++];
+        color = *buf++;
         if (color & 0b10000000) {
           color &= 0b111111;
-          rle = buf[pt++] - 1;
+          rle = *buf++ - 1;
         }
       } else {
         rle--;
       }
 
       if (isOnLineY) {
-        int screenX = x + xstart;
+        int screenX = x + X;
         if (screenX < 0) continue;
         if (screenX >= 240) continue;
 
@@ -292,6 +265,23 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
       return;
     }
   }
+}
+
+void render_image(fb_rect* rect, uint16_t* line, int lineY) {
+  if (rect->y > lineY) return;
+  if ((rect->y + rect->h) < lineY) return;
+
+  JSV_GET_AS_CHAR_ARRAY(buf, len, rect->data);
+    // rect align
+  int xstart = rect->x;
+  if (rect->a == 1) {
+    xstart -= (rect->w >> 1);
+  }
+  if (rect->a == 2) {
+    xstart -= rect->w;
+  }
+
+  render_buffer(xstart, rect->y, rect->w, rect->h, rect->c, buf, line, lineY);
 }
 
 /*JSON{
