@@ -32,13 +32,15 @@ info = {
    'libraries' : [
      'BLUETOOTH',
      'NET',
-     'GRAPHICS',
-     'NFC',
-     'NEOPIXEL'
+#     'GRAPHICS',
+#     'NFC',
+#     'NEOPIXEL'
    ],
    'makefile' : [
      'DEFINES+=-DCONFIG_GPIO_AS_PINRESET', # Allow the reset pin to work
-     'DEFINES += -DBOARD_PCA10040 -DPCA10040'
+     'DEFINES += -DBOARD_PCA10040 -DPCA10040',
+     'INCLUDE += -I$(ROOT)/libs/fb',
+     'WRAPPERSOURCES += libs/fb/jswrap_fb.c'
    ]
  }
 };
