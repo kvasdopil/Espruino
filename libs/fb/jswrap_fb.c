@@ -7,13 +7,16 @@
 #include "jsdevices.h"
 #include "jsinteractive.h"
 
+// TODO: fillRect alignment
+// TODO: async render
+// TODO: use native nrf spi functions if necessary
+
 /*JSON{
   "type" : "library",
   "class" : "fb"
 }
 Framebuffer library
 */
-
 typedef struct {
   uint16_t id;
   int16_t x;
@@ -21,6 +24,7 @@ typedef struct {
   int16_t w;
   int16_t h;
   int16_t c;
+  uint8_t a; // FIXME: pack?
   JsVar* data;
   void* next;
 } fb_rect;
@@ -31,12 +35,14 @@ uint16_t last_id = 0;
 
 #define PACK_RGB8_TO_565(r,g,b) ( \
   ((b & 0b11111000) << 5) + \
-   (r & 0b11111000) + \
+  (r & 0b11111000) + \
   ((g & 0b11100000) >> 5) + ((g & 0b11100) << 11))
+
 #define UNPACK_565_TO_RGB8(val,r,g,b) \
   int r = (val & 0b11111000); \
-  int b = (val >> 5) & 0b11111000; \
-  int g = (((val & 0b111) << 5) + ((val & 0b1110000000000000) >> 11))
+  int b = ((val >> 5) & 0b11111000); \
+  int g = (((val & 0b111) << 5) + ((val & 0b1110000000000000) >> 11)); 
+
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
@@ -54,6 +60,21 @@ int jswrap_fb_color(int r, int g, int b) {
   return PACK_RGB8_TO_565(r, g, b);
 }
 
+int recalc_image(fb_rect* rect) {
+  JSV_GET_AS_CHAR_ARRAY(buf, len, rect->data);
+  int pt = 0;
+  pt++; // len1
+  pt++; // len2
+  int type = buf[pt++]; // type 
+  if(type != 11) {
+    jsExceptionHere(JSET_ERROR, "unknown type %d", type);
+    return;
+  }; 
+  pt++; // id 
+  rect->w = buf[pt++]; // width 
+  rect->h = buf[pt++]; // height
+}
+
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
@@ -66,7 +87,7 @@ int jswrap_fb_color(int r, int g, int b) {
 }
 */
 int jswrap_fb_add(JsVar* opts) {
-  int x = 0, y = 0, w = 0, h = 0, c = 0;
+  int x = 0, y = 0, w = 0, h = 0, c = 0, a = 0;
   JsVar* data = 0;
   jsvConfigObject configs[] = {
     {"x", JSV_INTEGER, &x},
@@ -74,6 +95,7 @@ int jswrap_fb_add(JsVar* opts) {
     {"w", JSV_INTEGER, &w},
     {"h", JSV_INTEGER, &h},
     {"c", JSV_INTEGER, &c},
+    {"a", JSV_INTEGER, &a},
     {"data", JSV_OBJECT, &data}
   };
   if (!jsvReadConfigObject(opts, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
@@ -94,6 +116,7 @@ int jswrap_fb_add(JsVar* opts) {
   rect->w = w;
   rect->h = h;
   rect->c = c;
+  rect->a = a;
   rect->id = last_id++;
   rect->next = NULL;
   rect->data = data;
@@ -107,6 +130,10 @@ int jswrap_fb_add(JsVar* opts) {
       pt = pt->next;
     }
     pt->next = rect;
+  }
+
+  if (rect->data) {
+    recalc_image(rect);
   }
 
   return rect->id;
@@ -170,7 +197,7 @@ int jswrap_fb_cmd(JsVar* interface, JsVar *cmd1, int dclen, Pin dc) {
 
 inline void render_rect(fb_rect* rect, uint16_t* line, int y) {
   if (rect->y > y) return;
-  if ((rect->y + rect->w) < y) return;
+  if ((rect->y + rect->h) < y) return;
   int x1 = rect->x < 0 ? 0 : rect->x;
   int x2 = rect->x + rect->w >= 240 ? 240 : rect->x + rect->w;
   int c = rect->c;
@@ -182,8 +209,9 @@ inline void render_rect(fb_rect* rect, uint16_t* line, int y) {
 }
 
 void render_image(fb_rect* rect, uint16_t* line, int lineY) {
-  // if (rect->y > lineY) return;
-  // if ((rect->y + rect->w) < y) return;
+  if (rect->y > lineY) return;
+  if ((rect->y + rect->h) < lineY) return;
+
   // int x1 = rect->x < 0 ? 0 : rect->x;
   // int x2 = rect->x + rect->w >= 240 ? 240 : rect->x + rect->w;
   
@@ -204,9 +232,8 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
     return;
   }; 
   pt++; // id 
-  rect->w = buf[pt++]; // width 
-  rect->h = buf[pt++]; // height
- 
+  pt++; // width 
+  pt++; // height
   pt++; // x offset
   pt++; // y offset
   pt++; // x advance
@@ -218,9 +245,23 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
 
   UNPACK_565_TO_RGB8(rect->c, cr, cg, cb);
 
+
+
   int color = 0;
   int rle = 0;
+
+  // rect align
+  int xstart = rect->x;
+  if (rect->a == 1) {
+    xstart -= (rect->w >> 1);
+  }
+  if (rect->a == 2) {
+    xstart -= rect->w;
+  }
+
   for(int y = 0; y < rect->h; y++) {
+    const isOnLineY = (y + rect->y == lineY);
+
     for(int x = 0; x < rect->w; x++) {
       if (rle == 0) {
         color = buf[pt++];
@@ -232,15 +273,23 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
         rle--;
       }
 
-      if (y + rect->y == lineY) {
+      if (isOnLineY) {
+        int screenX = x + xstart;
+        if (screenX < 0) continue;
+        if (screenX >= 240) continue;
+
         int cl = color << 2;
         int ncl = (0b111111 - color) << 2;
-        UNPACK_565_TO_RGB8(line[x], or, og, ob);
+        UNPACK_565_TO_RGB8(line[screenX], or, og, ob);
         int rr = ((ncl * or) + (cr * cl)) >> 8;
         int gg = ((ncl * og) + (cg * cl)) >> 8;
         int bb = ((ncl * ob) + (cb * cl)) >> 8;
-        line[x] = PACK_RGB8_TO_565(rr, gg, bb);
+        line[screenX] = PACK_RGB8_TO_565(rr, gg, bb);
       }
+    }
+
+    if (isOnLineY) {
+      return;
     }
   }
 }

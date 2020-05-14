@@ -9,7 +9,7 @@ fb.add({ x: 50, y: 50, w: 140, h: 140, c: fb.color(50, 50, 0) });
 fb.add({ x: 25, y: 150, w: 50, h: 50, c: fb.color(255, 0, 0) });
 fb.add({ x: 150, y: 25, w: 50, h: 50, c: fb.color(0, 0, 255) });
 fb.add({ x: 150, y: 150, w: 50, h: 50, c: fb.color(0, 255, 0) });
-fb.add({ x: 25, y: 25, w: 80, h: 80, data: icon, c: fb.color(0, 255, 255) });
+fb.add({ x: 120, y: 60, w: 80, h: 80, data: icon, c: fb.color(0, 255, 255), a: 1 });
 
 const BL = D31;
 const MOSI = D3;
