@@ -24,6 +24,7 @@ typedef struct {
   void* next;
 } fb_rect;
 
+fb_rect* cache = NULL;
 fb_rect* root = NULL;
 uint16_t last_id = 0;
 
@@ -69,7 +70,14 @@ int jswrap_fb_add(JsVar* opts) {
     return 0;
   }
 
-  fb_rect* rect = calloc(1, sizeof(fb_rect));
+  fb_rect* rect;
+  if (cache) {
+    rect = cache;
+    cache = cache->next;
+  } else {
+    rect = calloc(1, sizeof(fb_rect));
+  }
+
   rect->x = x;
   rect->y = y;
   rect->w = w;
@@ -104,7 +112,13 @@ int jswrap_fb_add(JsVar* opts) {
 }
 */
 int jswrap_fb_init() {
-  root = NULL; // FIXME: reuse rects
+  while(root) {
+    fb_rect* item = root;
+    root = root->next;
+
+    item->next = cache;
+    cache = item;
+  }
   return 0;
 }
 

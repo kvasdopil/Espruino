@@ -68,6 +68,6 @@ init(spi, DC, CS, RST, () => {
   fb.cmd(spi, [0x2C], 1, DC);
   fb.send(spi, 0);
   const d2 = new Date().getTime();
-  console.log(d2 - d1);
+  console.log(d2 - d1, process.memory().free);
   CS.set();
 })
