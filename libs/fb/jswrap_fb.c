@@ -257,64 +257,78 @@ inline void render_rect(fb_rect* rect, uint16_t* line, int y) {
   }
 }
 
+typedef struct {
+  uint8_t* pt;
+  uint8_t rle;
+  uint16_t color;
+} img_info;
+
+img_info structs[50];
+int struct_counter = 0;
+
 // buf[0] - width
 // buf[1] - height
 // buf[2] - x offset
 // buf[3] - y offset
 // buf[4] - x advance
 // buf[5] - kernings count
-int render_buffer(int X, int Y, int C, uint8_t* buf, uint8_t prevId, uint16_t* line, int lineY) {
+int render_buffer(int X, int Y, int C, uint8_t* buf, uint8_t prevId, uint16_t* line, int lineY, img_info *info) {
   int W = buf[0];
   int H = buf[1];
   X += buf[2];
   Y += buf[3];
   int xadv = buf[4];
-  int numKerns = buf[5]; // number of kernings
-  buf += 6 + numKerns * 2;
+  
+  if (lineY < Y) return xadv;
+  if (lineY == Y) {
+    int numKerns = buf[5]; // number of kernings
+    info->pt = buf + 6 + numKerns * 2;
   // TODO: kernings
+    info->color = 0;
+    info->rle = 0;
+  } else {
+    if (lineY >= Y + H) return xadv;
+  }
 
   UNPACK_565_TO_RGB8(C, cr, cg, cb);
 
-  int color = 0;
-  int rle = 0;
-  for(int y = 0; y < H; y++) {
-    const isOnLineY = (y + Y == lineY);
+  int color = info->color;
+  int rle = info->rle;
+  buf = info->pt;
 
-    for(int x = 0; x < W; x++) {
-      if (rle == 0) {
-        color = *buf++;
-        if (color & 0b10000000) {
-          color &= 0b111111;
-          rle = *buf++ - 1;
-        }
-      } else {
-        rle--;
+  for(int x = 0; x < W; x++) {
+    if (rle == 0) {
+      color = *buf++;
+      if (color & 0b10000000) {
+        color &= 0b111111;
+        rle = *buf++ - 1;
       }
-
-      if (isOnLineY) {
-        int screenX = x + X;
-        if (screenX < 0) continue;
-        if (screenX >= 240) continue;
-
-        int cl = color << 2;
-        int ncl = (0b111111 - color) << 2;
-        UNPACK_565_TO_RGB8(line[screenX], or, og, ob);
-        int rr = ((ncl * or) + (cr * cl)) >> 8;
-        int gg = ((ncl * og) + (cg * cl)) >> 8;
-        int bb = ((ncl * ob) + (cb * cl)) >> 8;
-        line[screenX] = PACK_RGB8_TO_565(rr, gg, bb);
-      }
+    } else {
+      rle--;
     }
 
-    if (isOnLineY) {
-      return xadv;
-    }
+    int screenX = x + X;
+    if (screenX < 0) continue;
+    if (screenX >= 240) continue;
+
+    int cl = color << 2;
+    int ncl = (0b111111 - color) << 2;
+    UNPACK_565_TO_RGB8(line[screenX], or, og, ob);
+    int rr = ((ncl * or) + (cr * cl)) >> 8;
+    int gg = ((ncl * og) + (cg * cl)) >> 8;
+    int bb = ((ncl * ob) + (cb * cl)) >> 8;
+    line[screenX] = PACK_RGB8_TO_565(rr, gg, bb);
   }
+
+  info->color = color;
+  info->rle = rle;
+  info->pt = buf;
 
   return xadv;
 }
 
 void render_image(fb_rect* rect, uint16_t* line, int lineY) {
+  struct_counter++;
   if (rect->y > lineY) return;
   if ((rect->y + rect->h) < lineY) return;
 
@@ -329,15 +343,17 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
   }
 
   uint8_t* glyph = find_glyph(buf, 0);
-  render_buffer(xstart, rect->y, rect->c, glyph, 0, line, lineY);
+  render_buffer(xstart, rect->y, rect->c, glyph, 0, line, lineY, &structs[struct_counter - 1]);
 }
 
 void render_text(fb_rect* rect, uint16_t* line, int lineY) {
+  int ss = struct_counter;
+  JSV_GET_AS_CHAR_ARRAY(text, textLen, rect->text);
+  struct_counter+=textLen;
+
   if (rect->y > lineY) return;
   if ((rect->y + rect->h) < lineY) return;
-  
   JSV_GET_AS_CHAR_ARRAY(data, dataLen, rect->data);
-  JSV_GET_AS_CHAR_ARRAY(text, textLen, rect->text);
 
   // rect align
   int xstart = rect->x;
@@ -351,7 +367,7 @@ void render_text(fb_rect* rect, uint16_t* line, int lineY) {
   int prevId = 0;
   while(textLen) {
     uint8_t* glyph = find_glyph(data, text[0]);
-    xstart += render_buffer(xstart, rect->y, rect->c, glyph, prevId, line, lineY);
+    xstart += render_buffer(xstart, rect->y, rect->c, glyph, prevId, line, lineY, &structs[ss++]);
     prevId = text[0];
     text++;
     textLen--;
@@ -381,6 +397,8 @@ int jswrap_fb_send(JsVar* interface, JsVar *cmd1) {
       line[x] = 0;
     }
 
+    struct_counter = 0;
+
     fb_rect* pt = root;
     while(pt) {
       if (pt->data) {
@@ -399,5 +417,5 @@ int jswrap_fb_send(JsVar* interface, JsVar *cmd1) {
     jshSPISendMany(device, line+120, NULL, 240, NULL);
   }
 
-  return 0;
+  return struct_counter;
 }
