@@ -26,6 +26,7 @@ typedef struct {
   int16_t c;
   uint8_t a; // FIXME: pack?
   JsVar* data;
+  JsVar* text;
   void* next;
 } fb_rect;
 
@@ -67,7 +68,7 @@ int recalc_image(fb_rect* rect) {
   pt++; // len2
   int type = buf[pt++]; // type 
   if(type != 11) {
-    jsExceptionHere(JSET_ERROR, "unknown type %d", type);
+    jsExceptionHere(JSET_ERROR, "Unknown type %d", type);
     return;
   }; 
   pt++; // id 
@@ -88,7 +89,7 @@ int recalc_image(fb_rect* rect) {
 */
 int jswrap_fb_add(JsVar* opts) {
   int x = 0, y = 0, w = 0, h = 0, c = 0, a = 0;
-  JsVar* data = 0;
+  JsVar* data = 0, *text = 0;
   jsvConfigObject configs[] = {
     {"x", JSV_INTEGER, &x},
     {"y", JSV_INTEGER, &y},
@@ -96,7 +97,8 @@ int jswrap_fb_add(JsVar* opts) {
     {"h", JSV_INTEGER, &h},
     {"c", JSV_INTEGER, &c},
     {"a", JSV_INTEGER, &a},
-    {"data", JSV_OBJECT, &data}
+    {"data", JSV_OBJECT, &data},
+    {"text", JSV_OBJECT, &text},
   };
   if (!jsvReadConfigObject(opts, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
     jsExceptionHere(JSET_ERROR, "Invalid options object");
@@ -120,6 +122,7 @@ int jswrap_fb_add(JsVar* opts) {
   rect->id = last_id++;
   rect->next = NULL;
   rect->data = data;
+  rect->text = text;
 
   // add rect to list
   if(root == 0) {
@@ -208,25 +211,35 @@ inline void render_rect(fb_rect* rect, uint16_t* line, int y) {
   }
 }
 
-
 // buf[0] - len1
 // buf[1] - len2
 // buf[2] - type
 // buf[3] - id
-// buf[4] - width
-// buf[5] - height
-// buf[6] - x offset
-// buf[7] - y offset
-// buf[8] - x advance
-// buf[9] - kernings count
-int render_buffer(int X, int Y, int W, int H, int C, uint8_t* buf, uint16_t* line, int lineY) {
-  int type = buf[2]; // type 
-  if(type != 11) {
-    jsExceptionHere(JSET_ERROR, "unknown type %d", type);
-    return;
-  }; 
-  int numKerns = buf[9]; // number of kernings
-  buf += 9 + numKerns * 2;
+uint8_t* find_glyph(uint8_t* buf, uint8_t id) {
+  while(true) {
+    if(buf[2] != 11) { // type 
+      jsExceptionHere(JSET_ERROR, "unknown type %d", buf[2]);
+      return 0;
+    }; 
+    if (buf[3] == id) {
+      return buf + 4;
+    }
+    buf += 2 + (buf[0] << 8) + buf[1];
+  }
+  return 0;
+}
+
+// buf[0] - width
+// buf[1] - height
+// buf[2] - x offset
+// buf[3] - y offset
+// buf[4] - x advance
+// buf[5] - kernings count
+int render_buffer(int X, int Y, int C, uint8_t* buf, uint16_t* line, int lineY) {
+  int W = buf[0];
+  int H = buf[1];
+  int numKerns = buf[5]; // number of kernings
+  buf += 6 + numKerns * 2;
 
   UNPACK_565_TO_RGB8(C, cr, cg, cb);
 
@@ -262,9 +275,11 @@ int render_buffer(int X, int Y, int W, int H, int C, uint8_t* buf, uint16_t* lin
     }
 
     if (isOnLineY) {
-      return;
+      return W;
     }
   }
+
+  return W;
 }
 
 void render_image(fb_rect* rect, uint16_t* line, int lineY) {
@@ -281,7 +296,21 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
     xstart -= rect->w;
   }
 
-  render_buffer(xstart, rect->y, rect->w, rect->h, rect->c, buf, line, lineY);
+  uint8_t* glyph = find_glyph(buf, 0);
+  render_buffer(xstart, rect->y, rect->c, glyph, line, lineY);
+}
+
+void render_text(fb_rect* rect, uint16_t* line, int lineY) {
+  JSV_GET_AS_CHAR_ARRAY(data, dataLen, rect->data);
+  JSV_GET_AS_CHAR_ARRAY(text, textLen, rect->text);
+
+  int xstart = rect->x;
+  while(textLen) {
+    uint8_t* glyph = find_glyph(data, text[0]);
+    xstart += render_buffer(xstart, rect->y, rect->c, glyph, line, lineY);
+    text++;
+    textLen--;
+  }
 }
 
 /*JSON{
@@ -310,7 +339,11 @@ int jswrap_fb_send(JsVar* interface, JsVar *cmd1) {
     fb_rect* pt = root;
     while(pt) {
       if (pt->data) {
-        render_image(pt, line, y);
+        if (pt->text) {
+          render_text(pt, line, y);
+        } else {
+          render_image(pt, line, y);
+        }
       } else {
         render_rect(pt, line, y);
       }
