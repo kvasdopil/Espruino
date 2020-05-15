@@ -8,9 +8,16 @@
 #include "jsinteractive.h"
 #include "nrf_drv_spi.h"
 
+#define max(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+      __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
+#define min(a,b) \
+   ({ __typeof__ (a) _a = (a); \
+      __typeof__ (b) _b = (b); \
+     _a < _b ? _a : _b; })
+
 // TODO: fillRect alignment
-// TODO: async render
-// TODO: use native nrf spi functions if necessary
 
 /*JSON{
   "type" : "library",
@@ -31,9 +38,13 @@ typedef struct {
   void* next;
 } fb_rect;
 
+
+
 fb_rect* cache = NULL;
 fb_rect* root = NULL;
 uint16_t last_id = 0;
+int changed_y1 = 0;
+int changed_y2 = 240; 
 
 #define PACK_RGB8_TO_565(r,g,b) ( \
   ((b & 0b11111000) << 5) + \
@@ -186,7 +197,82 @@ int jswrap_fb_add(JsVar* opts) {
     }
   }
 
+  changed_y1 = min(rect->y, changed_y1);
+  changed_y2 = max(rect->y + rect->h, changed_y2);
+
   return rect->id;
+}
+
+/*JSON{
+  "type" : "staticmethod",
+  "class" : "fb",
+  "name" : "set",
+  "generate" : "jswrap_fb_set",
+  "params" : [
+    ["id", "int", "id"],
+    ["opts","JsVar","Rect options"]
+  ],
+  "return" : ["int","None"]
+}
+*/
+int jswrap_fb_set(int id, JsVar* opts) {
+  fb_rect* rect = root;
+  while(rect) {
+    if (rect->id == id) break;
+    rect = rect->next;
+  }
+  if (!rect) {
+    jsExceptionHere(JSET_ERROR, "Cannot find rect");
+    return;
+  }
+
+  int x = rect->x;
+  int y = rect->y;
+  int w = rect->w;
+  int h = rect->h;
+  int c = rect->c;
+  int a = rect->a;
+  JsVar* data = rect->data;
+  JsVar* text = rect->text;
+
+  jsvConfigObject configs[] = {
+    {"x", JSV_INTEGER, &x},
+    {"y", JSV_INTEGER, &y},
+    {"w", JSV_INTEGER, &w},
+    {"h", JSV_INTEGER, &h},
+    {"c", JSV_INTEGER, &c},
+    {"a", JSV_INTEGER, &a},
+    {"data", JSV_OBJECT, &data},
+    {"text", JSV_OBJECT, &text},
+  };
+  if (!jsvReadConfigObject(opts, configs, sizeof(configs) / sizeof(jsvConfigObject))) {
+    jsExceptionHere(JSET_ERROR, "Invalid options object");
+    return 0;
+  }
+  
+  rect->x = x;
+  rect->y = y;
+  rect->w = w;
+  rect->h = h;
+  rect->c = c;
+  rect->a = a;
+  rect->data = data;
+  rect->text = text;
+
+  // TODO: only recalc size if values have changed
+
+  if (rect->data) {
+    if(rect->text) {
+      recalc_text_size(rect, &rect->w, &rect->h);
+    } else {
+      recalc_image_size(rect);
+    }
+  }
+
+  changed_y1 = min(rect->y, changed_y1);
+  changed_y2 = max(rect->y + rect->h, changed_y2);
+
+  return;
 }
 
 
@@ -384,19 +470,34 @@ void callback() {};
   "generate" : "jswrap_fb_send",
   "params" : [
     ["spi","JsVar","SPI interface to send data"],
-    ["cmd", "JsVar", "Data"]
+    ["cmd", "pin", "dc"]
   ],
   "return" : ["int","None"]
 }
 */
-int jswrap_fb_send(JsVar* interface, JsVar *cmd1) {
+int jswrap_fb_send(JsVar* interface, Pin dc) {
   IOEventFlags device = jsiGetDeviceFromClass(interface);
-  
+
+  if (changed_y2 < changed_y1) return;
+  changed_y1 = max(0, changed_y1);
+  changed_y2 = min(240, changed_y2);
+
+  uint8_t ch[5] = { 0x2B, 0, changed_y1, 0, changed_y2 };
+  jshPinOutput(dc, false);
+  jshSPISendMany(device, ch, NULL, 1, NULL);
+  jshPinOutput(dc, true);
+  jshSPISendMany(device, ch+1, NULL, 4, NULL);
+
+  ch[0] = 0x2C;
+  jshPinOutput(dc, false);
+  jshSPISendMany(device, ch, NULL, 1, callback);
+  jshPinOutput(dc, true);
+
   uint16_t line1[240];
   uint16_t line2[240];
   uint16_t color;
 
-  for(int y = 0; y < 240; y++) {
+  for(int y = changed_y1; y < changed_y2; y++) {
     uint16_t* line = y & 0b1 ? line1 : line2;
     for(int x = 0; x < 240; x++) {
       line[x] = 0;
@@ -419,9 +520,10 @@ int jswrap_fb_send(JsVar* interface, JsVar *cmd1) {
     }
 
     jshSPISendMany(device, line, NULL, 480,  callback);
-    // nrf_drv_spi_transfer(&spi0, line, 240, 0, 0);
-    // jshSPISendMany(device, line+120, NULL, 240, callback);
   }
+
+  changed_y1 = 240;
+  changed_y2 = 0;
 
   return struct_counter;
 }

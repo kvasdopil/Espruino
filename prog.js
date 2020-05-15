@@ -1,6 +1,8 @@
 const fb = require('fb');
 const st = require('Storage');
 
+E.enableWatchdog(0.5); // automatic mode   
+
 const icon = st.readArrayBuffer('icon-timer.i');
 const font1 = st.readArrayBuffer('metropolis-medium.72.f');
 const font2 = st.readArrayBuffer('metropolis-medium.18.f');
@@ -12,7 +14,7 @@ fb.add({ x: 25, y: 150, w: 50, h: 50, c: fb.color(255, 0, 0) });
 fb.add({ x: 150, y: 25, w: 50, h: 50, c: fb.color(0, 0, 255) });
 fb.add({ x: 150, y: 150, w: 50, h: 50, c: fb.color(0, 255, 0) });
 fb.add({ x: 120, y: 60, data: icon, c: fb.color(0, 255, 255), a: 1 });
-fb.add({ x: 120, y: 30, data: font1, c: fb.color(255, 0, 255), a: 1, text: '012345' });
+const bigtxt = fb.add({ x: 120, y: 30, data: font1, c: fb.color(255, 0, 255), a: 1, text: '012345' });
 fb.add({ x: 120, y: 200, data: font2, c: 0xffff, a: 1, text: 'Hello world!' });
 fb.add({ x: 10, y: 10, data: font2, c: fb.color(255, 0, 0), a: 0, text: 'Whats up, doc?' })
 fb.add({ x: 230, y: 80, data: font2, c: fb.color(255, 255, 0), a: 2, text: 'Right-aligned text' });
@@ -52,6 +54,7 @@ function init(spi, dc, ce, rst, callback) {
     [0xe1, [0x70, 0x15, 0x20, 0x15, 0x10, 0x09, 0x48, 0x33, 0x53, 0x0B, 0x19, 0x15, 0x2a, 0x2f]],   // NVGAMCTRL (E1h): Negative Voltage Gamma Contro
     [0x29, 0], // DISPON (29h): Display On 
     [0x21, 0], // INVON (21h): Display Inversion On
+    [0x2A, [0, 0, 0, 240]], // x: 0-240
     [0, 0]// 255/*DATA_LEN = 255 => END*/
   ];
 
@@ -70,14 +73,26 @@ BL.set(); // LCD backlight on
 var spi = SPI1;
 spi.setup({ mosi: MOSI, sck: SCK, baud: 8 * 1024 * 1024 });
 init(spi, DC, CS, RST, () => {
-  CS.reset();
-  fb.cmd(spi, [0x2A, 0, 0, 0, 240], 1, DC);
-  fb.cmd(spi, [0x2B, 0, 0, 0, 240], 1, DC);
 
-  fb.cmd(spi, [0x2C], 1, DC);
+  CS.reset();
   const d1 = Date.now();
-  const bufs = fb.send(spi, 0);
+  const bufs = fb.send(spi, DC);
   const d2 = Date.now();
   console.log(d2 - d1, process.memory().free, bufs);
-  CS.set();
+
+  let n = 123456;
+  const text = '' + n;
+  setInterval(() => {
+    n = Math.floor(Math.random() * 1000000);
+    fb.set(bigtxt, { text: '123' });
+    // fb.cmd(spi, [0x2A, 0, 0, 0, 240], 1, DC);
+    // const d1 = Date.now();
+    fb.send(spi, DC);
+    // const d2 = Date.now();
+    // console.log(d2 - d1, process.memory().free, bufs, text);
+  }, 1000);
+
+  setInterval(() => {
+    console.log(process.memory().free);
+  }, 1000);
 })
