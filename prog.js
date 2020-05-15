@@ -14,6 +14,8 @@ fb.add({ x: 150, y: 150, w: 50, h: 50, c: fb.color(0, 255, 0) });
 fb.add({ x: 120, y: 60, data: icon, c: fb.color(0, 255, 255), a: 1 });
 fb.add({ x: 120, y: 30, data: font1, c: fb.color(255, 0, 255), a: 1, text: '012345' });
 fb.add({ x: 120, y: 200, data: font2, c: 0xffff, a: 1, text: 'Hello world!' });
+fb.add({ x: 10, y: 10, data: font2, c: fb.color(255, 0, 0), a: 0, text: 'Whats up, doc?' })
+fb.add({ x: 230, y: 80, data: font2, c: fb.color(255, 255, 0), a: 2, text: 'Right-aligned text' });
 
 const BL = D31;
 const MOSI = D3;
@@ -73,9 +75,9 @@ init(spi, DC, CS, RST, () => {
   fb.cmd(spi, [0x2B, 0, 0, 0, 240], 1, DC);
 
   fb.cmd(spi, [0x2C], 1, DC);
-  const d1 = new Date().getTime();
-  fb.send(spi, 0);
-  const d2 = new Date().getTime();
-  console.log(d2 - d1, process.memory().free);
+  const d1 = Date.now();
+  const bufs = fb.send(spi, 0);
+  const d2 = Date.now();
+  console.log(d2 - d1, process.memory().free, bufs);
   CS.set();
 })

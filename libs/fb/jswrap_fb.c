@@ -6,6 +6,7 @@
 #include "jsspi.h"
 #include "jsdevices.h"
 #include "jsinteractive.h"
+#include "nrf_drv_spi.h"
 
 // TODO: fillRect alignment
 // TODO: async render
@@ -374,6 +375,8 @@ void render_text(fb_rect* rect, uint16_t* line, int lineY) {
   }
 }
 
+void callback() {};
+
 /*JSON{
   "type" : "staticmethod",
   "class" : "fb",
@@ -388,11 +391,13 @@ void render_text(fb_rect* rect, uint16_t* line, int lineY) {
 */
 int jswrap_fb_send(JsVar* interface, JsVar *cmd1) {
   IOEventFlags device = jsiGetDeviceFromClass(interface);
-
-  uint16_t line[240];
+  
+  uint16_t line1[240];
+  uint16_t line2[240];
   uint16_t color;
 
   for(int y = 0; y < 240; y++) {
+    uint16_t* line = y & 0b1 ? line1 : line2;
     for(int x = 0; x < 240; x++) {
       line[x] = 0;
     }
@@ -413,8 +418,9 @@ int jswrap_fb_send(JsVar* interface, JsVar *cmd1) {
       pt = pt->next;
     }
 
-    jshSPISendMany(device, line, NULL, 240, NULL);
-    jshSPISendMany(device, line+120, NULL, 240, NULL);
+    jshSPISendMany(device, line, NULL, 480,  callback);
+    // nrf_drv_spi_transfer(&spi0, line, 240, 0, 0);
+    // jshSPISendMany(device, line+120, NULL, 240, callback);
   }
 
   return struct_counter;
