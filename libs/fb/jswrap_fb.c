@@ -333,6 +333,9 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
 }
 
 void render_text(fb_rect* rect, uint16_t* line, int lineY) {
+  if (rect->y > lineY) return;
+  if ((rect->y + rect->h) < lineY) return;
+  
   JSV_GET_AS_CHAR_ARRAY(data, dataLen, rect->data);
   JSV_GET_AS_CHAR_ARRAY(text, textLen, rect->text);
 
