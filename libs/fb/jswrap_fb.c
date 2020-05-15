@@ -61,7 +61,49 @@ int jswrap_fb_color(int r, int g, int b) {
   return PACK_RGB8_TO_565(r, g, b);
 }
 
-int recalc_image(fb_rect* rect) {
+// buf[0] - len1
+// buf[1] - len2
+// buf[2] - type
+// buf[3] - id
+uint8_t* find_glyph(uint8_t* buf, uint8_t id) {
+  while(true) {
+    if(buf[2] != 11) { // type 
+      jsExceptionHere(JSET_ERROR, "unknown type %d", buf[2]);
+      return 0;
+    }; 
+    if (buf[3] == id) {
+      return buf + 4;
+    }
+    buf += 2 + (buf[0] << 8) + buf[1];
+  }
+  return 0;
+}
+
+void recalc_text_size(fb_rect* rect, uint16_t* w, uint16_t* h) {
+  JSV_GET_AS_CHAR_ARRAY(dataBuf, dataLen, rect->data);
+  JSV_GET_AS_CHAR_ARRAY(textBuf, textLen, rect->text);
+
+  w[0] = 0;
+  h[0] = 0;
+  while(textLen) {
+    uint8_t* glyph = find_glyph(dataBuf, textBuf[0]);
+
+    // set height
+    int glyphH = glyph[1] + glyph[3]; // height + yoffset
+    if (glyphH > h[0]) {
+      h[0] = glyphH;
+    }
+
+    // set width
+    w[0] += glyph[4]; // xadvance
+
+    // TODO: kerning
+    textBuf++;
+    textLen--;
+  }
+}
+
+void recalc_image_size(fb_rect* rect) {
   JSV_GET_AS_CHAR_ARRAY(buf, len, rect->data);
   int pt = 0;
   pt++; // len1
@@ -136,7 +178,11 @@ int jswrap_fb_add(JsVar* opts) {
   }
 
   if (rect->data) {
-    recalc_image(rect);
+    if(rect->text) {
+      recalc_text_size(rect, &rect->w, &rect->h);
+    } else {
+      recalc_image_size(rect);
+    }
   }
 
   return rect->id;
@@ -211,35 +257,21 @@ inline void render_rect(fb_rect* rect, uint16_t* line, int y) {
   }
 }
 
-// buf[0] - len1
-// buf[1] - len2
-// buf[2] - type
-// buf[3] - id
-uint8_t* find_glyph(uint8_t* buf, uint8_t id) {
-  while(true) {
-    if(buf[2] != 11) { // type 
-      jsExceptionHere(JSET_ERROR, "unknown type %d", buf[2]);
-      return 0;
-    }; 
-    if (buf[3] == id) {
-      return buf + 4;
-    }
-    buf += 2 + (buf[0] << 8) + buf[1];
-  }
-  return 0;
-}
-
 // buf[0] - width
 // buf[1] - height
 // buf[2] - x offset
 // buf[3] - y offset
 // buf[4] - x advance
 // buf[5] - kernings count
-int render_buffer(int X, int Y, int C, uint8_t* buf, uint16_t* line, int lineY) {
+int render_buffer(int X, int Y, int C, uint8_t* buf, uint8_t prevId, uint16_t* line, int lineY) {
   int W = buf[0];
   int H = buf[1];
+  X += buf[2];
+  Y += buf[3];
+  int xadv = buf[4];
   int numKerns = buf[5]; // number of kernings
   buf += 6 + numKerns * 2;
+  // TODO: kernings
 
   UNPACK_565_TO_RGB8(C, cr, cg, cb);
 
@@ -275,11 +307,11 @@ int render_buffer(int X, int Y, int C, uint8_t* buf, uint16_t* line, int lineY) 
     }
 
     if (isOnLineY) {
-      return W;
+      return xadv;
     }
   }
 
-  return W;
+  return xadv;
 }
 
 void render_image(fb_rect* rect, uint16_t* line, int lineY) {
@@ -297,17 +329,27 @@ void render_image(fb_rect* rect, uint16_t* line, int lineY) {
   }
 
   uint8_t* glyph = find_glyph(buf, 0);
-  render_buffer(xstart, rect->y, rect->c, glyph, line, lineY);
+  render_buffer(xstart, rect->y, rect->c, glyph, 0, line, lineY);
 }
 
 void render_text(fb_rect* rect, uint16_t* line, int lineY) {
   JSV_GET_AS_CHAR_ARRAY(data, dataLen, rect->data);
   JSV_GET_AS_CHAR_ARRAY(text, textLen, rect->text);
 
+  // rect align
   int xstart = rect->x;
+  if (rect->a == 1) {
+    xstart -= (rect->w >> 1);
+  }
+  if (rect->a == 2) {
+    xstart -= rect->w;
+  }
+
+  int prevId = 0;
   while(textLen) {
     uint8_t* glyph = find_glyph(data, text[0]);
-    xstart += render_buffer(xstart, rect->y, rect->c, glyph, line, lineY);
+    xstart += render_buffer(xstart, rect->y, rect->c, glyph, prevId, line, lineY);
+    prevId = text[0];
     text++;
     textLen--;
   }
